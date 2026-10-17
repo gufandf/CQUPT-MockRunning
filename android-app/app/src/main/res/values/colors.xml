@@ -17,4 +17,10 @@
     <color name="danger_box_bg">#FCEBEB</color>
     <color name="danger_stroke">#F0AEAE</color>
     <color name="nav_bg">#D9FFFFFF</color>
+    
+    <!-- 地图颜色 -->
+    <color name="map_bg">#1A2F7FE0</color>
+    <color name="map_boundary">#0E8F55</color>
+    <color name="map_track">#D14343</color>
+    <color name="map_exclude">#33D14343</color>
 </resources>

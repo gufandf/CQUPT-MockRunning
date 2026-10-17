@@ -1,0 +1,397 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  设置页面：整合了统计、上手、配置功能
+  分为几个主要部分：
+    - 账号配置（openid、场地）
+    - 运行参数（配速抖动）
+    - 统计数据
+    - 使用教程
+    - 应用设置（主题）
+    - 关于
+-->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/bg"
+    android:clipToPadding="false"
+    android:paddingBottom="24dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <!-- ═══════════ 顶栏 ═══════════ -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@color/box"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="8dp"
+            android:paddingTop="11dp"
+            android:paddingEnd="16dp"
+            android:paddingBottom="9dp">
+
+            <ImageButton
+                android:id="@+id/btnBack"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:background="?android:attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/back"
+                android:padding="10dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_back"
+                android:tint="@color/fg" />
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:letterSpacing="0.02"
+                android:paddingStart="8dp"
+                android:text="@string/settings"
+                android:textColor="@color/accent"
+                android:textSize="24sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <!-- ═══════════ 账号配置 ═══════════ -->
+        <TextView
+            style="@style/SectionHeader"
+            android:text="账号配置" />
+
+        <LinearLayout
+            style="@style/SettingsCard">
+
+            <TextView
+                style="@style/Label"
+                android:text="openid" />
+
+            <EditText
+                android:id="@+id/etOpenid"
+                style="@style/InputField"
+                android:hint="粘贴 openid"
+                android:inputType="textNoSuggestions" />
+
+            <Button
+                android:id="@+id/btnToggleOpenidHelp"
+                style="@style/SecondaryButton"
+                android:layout_marginTop="8dp"
+                android:text="@string/b_openid_help" />
+
+            <LinearLayout
+                android:id="@+id/panelOpenidHelp"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:lineSpacingExtra="3dp"
+                    android:text="@string/help_body"
+                    android:textColor="@color/fg_dim"
+                    android:textSize="13sp" />
+            </LinearLayout>
+
+            <Button
+                android:id="@+id/btnConnect"
+                style="@style/PrimaryButton"
+                android:layout_marginTop="12dp"
+                android:text="@string/b_connect" />
+
+            <TextView
+                style="@style/Label"
+                android:layout_marginTop="16dp"
+                android:text="场地" />
+
+            <Spinner
+                android:id="@+id/spArea"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:background="@drawable/box"
+                android:paddingStart="6dp"
+                android:paddingEnd="6dp" />
+        </LinearLayout>
+
+        <!-- ═══════════ 运行参数 ═══════════ -->
+        <TextView
+            style="@style/SectionHeader"
+            android:text="运行参数" />
+
+        <LinearLayout
+            style="@style/SettingsCard">
+
+            <TextView
+                style="@style/Label"
+                android:text="配速（分:秒 / 公里）" />
+
+            <EditText
+                android:id="@+id/etPace"
+                style="@style/InputField"
+                android:hint="5:45"
+                android:inputType="textNoSuggestions" />
+
+            <TextView
+                style="@style/Label"
+                android:layout_marginTop="12dp"
+                android:text="距离（公里）" />
+
+            <EditText
+                android:id="@+id/etDist"
+                style="@style/InputField"
+                android:hint="2.0"
+                android:inputType="numberDecimal" />
+
+            <TextView
+                style="@style/Label"
+                android:layout_marginTop="12dp"
+                android:text="配速抖动（秒 / 公里）" />
+
+            <EditText
+                android:id="@+id/etTol"
+                style="@style/InputField"
+                android:hint="20"
+                android:inputType="number" />
+
+            <TextView
+                android:id="@+id/tvPaceWindow"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text=""
+                android:textColor="@color/fg_dim"
+                android:textSize="13sp" />
+        </LinearLayout>
+
+        <!-- ═══════════ 统计数据 ═══════════ -->
+        <TextView
+            style="@style/SectionHeader"
+            android:text="成绩统计" />
+
+        <LinearLayout
+            style="@style/SettingsCard">
+
+            <Button
+                android:id="@+id/btnRefreshStats"
+                style="@style/PrimaryButton"
+                android:text="@string/b_refresh_stats" />
+
+            <TextView
+                android:id="@+id/tvStatsSummary"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:lineSpacingExtra="3dp"
+                android:text="@string/stats_hint"
+                android:textColor="@color/fg"
+                android:textSize="14sp" />
+
+            <TextView
+                style="@style/SubLabel"
+                android:layout_marginTop="16dp"
+                android:text="@string/l_stats_place" />
+
+            <TextView
+                android:id="@+id/tvStatsByPlace"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:fontFamily="monospace"
+                android:lineSpacingExtra="2dp"
+                android:text="@string/stats_dash"
+                android:textColor="@color/fg_dim"
+                android:textSize="13sp" />
+
+            <TextView
+                style="@style/SubLabel"
+                android:layout_marginTop="16dp"
+                android:text="@string/l_stats_list" />
+
+            <TextView
+                android:id="@+id/tvStatsList"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:fontFamily="monospace"
+                android:lineSpacingExtra="2dp"
+                android:text="@string/stats_dash"
+                android:textColor="@color/fg_dim"
+                android:textSize="12sp" />
+        </LinearLayout>
+
+        <!-- ═══════════ 使用教程 ═══════════ -->
+        <TextView
+            style="@style/SectionHeader"
+            android:text="@string/tutorial_title" />
+
+        <LinearLayout
+            style="@style/SettingsCard">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:lineSpacingExtra="4dp"
+                android:text="@string/tutorial_body"
+                android:textColor="@color/fg"
+                android:textSize="13sp" />
+
+            <TextView
+                style="@style/SubLabel"
+                android:layout_marginTop="16dp"
+                android:text="获取 openid 脚本" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/btnCopyScript"
+                    style="@style/SecondaryButton"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="8dp"
+                    android:text="@string/b_copy_script" />
+
+                <Button
+                    android:id="@+id/btnShareScript"
+                    style="@style/SecondaryButton"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:text="@string/b_share_script" />
+            </LinearLayout>
+
+            <Button
+                android:id="@+id/btnToggleScript"
+                style="@style/SecondaryButton"
+                android:layout_marginTop="8dp"
+                android:text="@string/b_view_script" />
+
+            <ScrollView
+                android:id="@+id/scriptScroll"
+                android:layout_width="match_parent"
+                android:layout_height="200dp"
+                android:layout_marginTop="8dp"
+                android:background="@drawable/box"
+                android:padding="8dp"
+                android:visibility="gone">
+
+                <TextView
+                    android:id="@+id/tvScript"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:fontFamily="monospace"
+                    android:textColor="@color/log"
+                    android:textSize="11sp" />
+            </ScrollView>
+
+            <TextView
+                android:id="@+id/tvScriptPath"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:textColor="@color/fg_dim"
+                android:textSize="11sp" />
+        </LinearLayout>
+
+        <!-- ═══════════ 应用设置 ═══════════ -->
+        <TextView
+            style="@style/SectionHeader"
+            android:text="外观" />
+
+        <LinearLayout
+            style="@style/SettingsCard">
+
+            <TextView
+                style="@style/Label"
+                android:text="@string/l_theme" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="46dp"
+                android:layout_marginTop="8dp"
+                android:background="@drawable/seg_container"
+                android:orientation="horizontal"
+                android:padding="4dp">
+
+                <TextView
+                    android:id="@+id/segThemeAuto"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:background="@drawable/seg_selected"
+                    android:gravity="center"
+                    android:text="@string/theme_auto_plain"
+                    android:textSize="13sp" />
+
+                <TextView
+                    android:id="@+id/segThemeDark"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:background="@drawable/seg_normal"
+                    android:gravity="center"
+                    android:text="@string/theme_dark_plain"
+                    android:textSize="13sp" />
+
+                <TextView
+                    android:id="@+id/segThemeLight"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:background="@drawable/seg_normal"
+                    android:gravity="center"
+                    android:text="@string/theme_light_plain"
+                    android:textSize="13sp" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- ═══════════ 关于 ═══════════ -->
+        <TextView
+            style="@style/SectionHeader"
+            android:text="@string/about_title" />
+
+        <LinearLayout
+            style="@style/SettingsCard">
+
+            <TextView
+                android:id="@+id/tvCredit"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:lineSpacingExtra="2dp"
+                android:textColor="@color/fg"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:lineSpacingExtra="4dp"
+                android:text="@string/about_body"
+                android:textColor="@color/fg_dim"
+                android:textSize="13sp" />
+
+            <TextView
+                android:id="@+id/tvRepo"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:lineSpacingExtra="3dp"
+                android:text="@string/repo_link"
+                android:textColor="@color/accent"
+                android:textSize="13sp" />
+
+            <Button
+                android:id="@+id/btnCopyRepo"
+                style="@style/SecondaryButton"
+                android:layout_marginTop="8dp"
+                android:text="@string/b_copy_repo" />
+        </LinearLayout>
+    </LinearLayout>
+</ScrollView>

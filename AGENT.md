@@ -12,7 +12,7 @@
 | 名称 | 鲸鲸约跑（CampusRun） |
 | 一句话 | 微信小程序「重邮智慧体育」的打卡工具，**安卓单机版** |
 | 作者 | WilliTourt的蓝色大肥鱼 🐟 |
-| 当前版本 | **v1.10.1**（`versionCode 11001` / `versionName "1.10.1"`）—— 每版一个 tag，规则见 [§5.1](#51-版本号规则semver) |
+| 当前版本 | **v1.11.0**（`versionCode 11100` / `versionName "1.11.0"`）—— 每版一个 tag，规则见 [§5.1](#51-版本号规则semver) |
 | License | MIT |
 | 仓库 | https://github.com/WilliTourt/CQUPT-MockRunning |
 | 目标服务 | `https://sport.cqupt.edu.cn/new_wxapp`（重邮智慧体育小程序后端） |
@@ -53,8 +53,9 @@ CQUPT-MockRunning/
 │   │   ├── Api.kt            重邮智慧体育 API 客户端（无签名、明文 JSON）
 │   │   ├── App.kt            Application 入口，只负责在任何 Activity 前定好主题
 │   │   ├── AreaStore.kt      场地缓存单例：上手页拉到 → 主页 onResume 直接取用
-│   │   ├── MainActivity.kt   **唯一的主界面**：共享顶栏 + 四个 panel + 悬浮切换栏
-│   │   ├── panel_*.xml      四页的布局（run / stats / start / settings），被 activity_main include
+│   │   ├── MainActivity.kt   **主页**：顶栏 + 地图 + 底部固定【开始打卡】
+│   │   ├── MapCanvasView.kt  自绘地图：围栏 / 禁跑区 / 按进度显现的轨迹
+│   │   ├── SettingsActivity.kt 设置页：账号 / 跑步 / 统计 / 教程 / 外观 / 关于
 │   │   ├── RunController.kt  单例，持有跑步线程，切主题重建 Activity 不丢进度
 │   │   ├── RunEngine.kt      打卡状态机：换 token → 生成轨迹 → start2 → 分批上传 → end
 │   │   ├── RunService.kt     前台服务，保证息屏后台不被打死
@@ -77,20 +78,19 @@ CQUPT-MockRunning/
 └── CHANGELOG.md              版本变更记录（Keep a Changelog 格式）
 ```
 
-**界面结构约定（v1.9.2 起）**：主界面是**一个 Activity + 四个 panel**，底部悬浮栏只切 `visibility`。四页分工：
+**界面结构约定（v1.11.0 起）**：两个页面，各只干一件事。
 
 | 页 | 放什么 |
 |---|---|
-| 主页 `panel_run` | 场地 / 配速 / 距离 / 容差 / 电池提示 / 开始 / 仪表盘 / 最后一行日志 |
-| 统计 `panel_stats` | 成绩汇总 + 分场地 + 最近记录 |
-| 上手 `panel_start` | 使用教程 / openid / 取码脚本 |
-| 设置 `panel_settings` | 主题 / 说明 / 开源仓库 / 署名 |
+| 主页 `MainActivity` / `activity_main.xml` | 顶栏（标题 + 日志 + 设置）、地图、电池提示、仪表盘摘要、底部固定【开始打卡】 |
+| 设置 `SettingsActivity` / `activity_settings.xml` | 账号（openid / 连接 / 场地）、跑步（配速 / 距离 / 抖动）、统计、教程 + 取码、外观、关于 |
 
-新增非打卡功能请加到【设置】页，不要堆回主页。
+主页**不要再塞表单**：场地 / 配速 / 距离 / 抖动都属于「设置」，改参数要进设置页。
+新增非打卡功能一律加到设置页，并按用途归到上面的分段里。
 
-**不要为了加一页去新建 Activity** —— 四个 panel 的 `id` 全局唯一，`findViewById` 就能拿到，
-切页只改 `visibility`（悬浮栏、各页的滚动位置、正在跑的打卡都不受影响）。
-运行日志是例外，它是独立的一页 `LogActivity`，从顶栏右上角小图标进入。
+设置页是独立 Activity，侧滑返回由系统提供（清单里
+`android:enableOnBackInvokedCallback="true"`），**不要**自己写手势监听。
+运行日志仍是独立的 `LogActivity`。
 
 ---
 
@@ -126,15 +126,10 @@ python refs/verify_trackgen.py        # 配速标定 + 围栏判定
 python refs/verify_pace_profile.py    # 配速起伏 × 3 场地 × 4 配速
 ```
 
-**界面结构约定**：见 §3 的分工表。四页在 `activity_main.xml` 里用 `<include>` 拼起来，
-每页的根 `ScrollView` 带 `android:id="@+id/panelXxx"`，`MainActivity.showTab()` 切 `visibility`。
-运行日志是独立的 `LogActivity`。
-
-顶栏只有一个（四页共用，切换时不动），里面放标题和日志图标 `ic_log`；
-**图标一律用 `app:tint="@color/fg"`**（不要用 `android:tint`，lint 会报 `UseAppTint`）。
-悬浮切换栏用 `seg_container`（圆角卡片）+ `android:elevation`，选中项走 `seg_selected`。
-每个 panel 的 `ScrollView` 要留 `android:paddingBottom="92dp"` —— 悬浮栏 56dp + 下边距 16dp，
-不留的话最后一屏内容会被盖住。
+**界面约定**：主页与设置页各一个布局（`activity_main.xml` / `activity_settings.xml`），
+页面之间走标准 Activity 转场。顶栏放标题和日志图标 `ic_log`、设置图标 `ic_settings`；
+**图标一律用 `android:tint="@color/fg"`**（lint 会报 `UseAppTint`）。
+地图是 `MapCanvasView` 自绘，颜色取 `@color/map_*`，不要接地图 SDK。
 状态栏用 `@color/box` 与顶栏连成一体，底部导航栏用 `@color/bg`。
 
 ---
