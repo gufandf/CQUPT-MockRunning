@@ -172,6 +172,7 @@ class SettingsActivity : AppCompatActivity() {
         loadScript()
         updateThemeUi()
         updatePaceWindow()
+        restoreAreas()
         bindList(AreaStore.snapshot())
         syncAreas()
     }
@@ -216,8 +217,26 @@ class SettingsActivity : AppCompatActivity() {
         else list.map { it.toString() }
         spArea.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, names)
         val idx = list.indexOfFirst { it.placeCode == keep }
-        if (idx >= 0) spArea.setSelection(idx)
+        if (idx >= 0) {
+            spArea.setSelection(idx)
+        } else if (list.isNotEmpty()) {
+            // 上次选的场地这次没下发（改名 / 停用）：退回第一个并记住，
+            // 否则主页 mapView 每次都要重新猜一遍
+            prefs.edit().putString("placeCode", list.first().placeCode).apply()
+        }
         boundRevision = AreaStore.revision
+    }
+
+    /**
+     * 冷启动先还原上次落盘的场地。
+     *
+     * 只认同一个 openid 的缓存：换了账号，磁盘里那份是别人的场地，不能用。
+     */
+    private fun restoreAreas() {
+        val oid = openid()
+        if (oid.isEmpty() || AreaStore.hasResultFor(oid)) return
+        val cached = AreaCache.load(this) ?: return
+        if (cached.first == oid) AreaStore.publish(cached.first, cached.second)
     }
 
     private fun doConnect() {
@@ -229,6 +248,8 @@ class SettingsActivity : AppCompatActivity() {
         }
         if (AreaStore.publishedOpenid.isNotEmpty() && AreaStore.publishedOpenid != oid) {
             AreaStore.invalidate()
+            // 旧 openid 的落盘缓存也一起丢，免得留在本机
+            AreaCache.clear(this)
         }
         prefs.edit().putString("openid", oid).apply()
         panelBusy = true
@@ -246,7 +267,11 @@ class SettingsActivity : AppCompatActivity() {
                     val list = engine.fetchAreas()
                     netFail = engine.netFail
                     got = list.size
-                    if (netFail) AreaStore.markNetFailed(oid) else AreaStore.publish(oid, list)
+                    if (netFail) AreaStore.markNetFailed(oid) else {
+                        AreaStore.publish(oid, list)
+                        // 落盘：冷启动不用打网络也能画边界、还原选中的场地
+                        AreaCache.save(applicationContext, oid, list)
+                    }
                 } else {
                     netFail = engine.netFail
                     badOpenid = !netFail

@@ -45,6 +45,10 @@ class MainActivity : AppCompatActivity(), RunListener {
     private var busy = false
     private val prefs by lazy { getSharedPreferences("campusrun", MODE_PRIVATE) }
 
+    /** 自动补拉是否在进行中，防止每次 onResume 都起一条线程。 */
+    @Volatile
+    private var autoFetching = false
+
     /** 串行化「连接 + 拉场地」，避免自动补拉和点开始同时换 token。 */
     private val fetchLock = Any()
 
@@ -95,15 +99,102 @@ class MainActivity : AppCompatActivity(), RunListener {
         super.onResume()
         updateBatteryHint()
         // 从设置页回来：场地可能换了 / openid 可能换了，只重画边界，不动正在跑的打卡
-        if (!RunController.running) showArea()
+        if (!RunController.running) {
+            dropIfOpenidChanged()
+            showArea()
+            autoFetchIfNeeded()
+        }
     }
 
     private fun restoreOrInit() {
+        dropIfOpenidChanged()
+        restoreAreas()
         if (RunController.running) {
             RunController.logFromUi("（已重新附着到正在进行的打卡）")
         } else {
             showArea()
+            autoFetchIfNeeded()
         }
+    }
+
+    /**
+     * 设置页里把 openid 改了、但还没点【连接】：内存和磁盘里那份场地都属于上一个账号。
+     * 不丢的话主页会先画出别人的场地，等补拉回来才换掉。
+     */
+    private fun dropIfOpenidChanged() {
+        val oid = openid()
+        if (AreaStore.publishedOpenid.isNotEmpty() && AreaStore.publishedOpenid != oid) {
+            AreaStore.invalidate()
+            AreaCache.clear(this)
+        }
+    }
+
+    /**
+     * 冷启动先把上次落盘的场地还原进 [AreaStore]。
+     *
+     * 不还原的话，进程被杀之后主页地图是空的、设置页下拉框也回到「先连接拉取场地」，
+     * 用户以为上次拉的场地白拉了。这里只认同一个 openid 的缓存 —— 换账号不能拿旧场地来画。
+     */
+    private fun restoreAreas() {
+        val oid = openid()
+        if (oid.isEmpty() || AreaStore.hasResultFor(oid)) return
+        val cached = AreaCache.load(this) ?: return
+        if (cached.first != oid) return
+        AreaStore.publish(cached.first, cached.second)
+        bindPlaceFromCache()
+    }
+
+    /** 缓存里有上次选的场地就继续用它；没有的话退回列表第一个（并记住）。 */
+    private fun bindPlaceFromCache() {
+        val list = AreaStore.snapshot()
+        if (list.isEmpty()) return
+        val code = prefs.getString("placeCode", "").orEmpty()
+        if (list.none { it.placeCode == code }) {
+            prefs.edit().putString("placeCode", list.first().placeCode).apply()
+        }
+    }
+
+    /**
+     * 启动时如果没有场地（首次安装 / 升级后第一次跑 / 缓存被清），
+     * 在后台静默补拉一次，拉到就落盘。用户不用先跑一趟设置页。
+     */
+    private fun autoFetchIfNeeded() {
+        if (RunController.running || busy || autoFetching) return
+        val oid = openid()
+        if (oid.isEmpty()) return
+        if (AreaStore.hasResultFor(oid)) return
+        if (AreaStore.isBadOpenid(oid) || AreaStore.inCooldown(oid)) return
+
+        autoFetching = true
+        Thread {
+            try {
+                fetchAreasFor(oid, silent = true)
+            } catch (t: Throwable) {
+                logStack("自动拉取场地", t)
+            } finally {
+                autoFetching = false
+                ui.post {
+                    if (!RunController.running) {
+                        bindPlaceFromCache()
+                        showArea()
+                    }
+                }
+            }
+        }.start()
+    }
+
+    /** 用上次选中的场地画边界。没场地就空着，等用户去设置页连。 */
+    private fun showArea() {
+        val code = prefs.getString("placeCode", "").orEmpty()
+        val list = AreaStore.snapshot()
+        val area = list.firstOrNull { it.placeCode == code }
+            ?: list.firstOrNull()
+            ?: return
+        // 选中的这个就是上次那个，没有的话把兜底选的写回去，下次启动才能原样还原
+        if (area.placeCode != code) {
+            prefs.edit().putString("placeCode", area.placeCode).apply()
+        }
+        mapView.setArea(area.fence, area.excludes)
     }
 
     private fun welcome() {
@@ -113,14 +204,7 @@ class MainActivity : AppCompatActivity(), RunListener {
         RunController.logFromUi("开始后可以锁屏/切走，别从最近任务划掉")
     }
 
-    /** 用上次选中的场地画边界。没场地就空着，等用户去设置页连。 */
-    private fun showArea() {
-        val code = prefs.getString("placeCode", "").orEmpty()
-        val area = AreaStore.snapshot().firstOrNull { it.placeCode == code }
-            ?: AreaStore.snapshot().firstOrNull()
-            ?: return
-        mapView.setArea(area.fence, area.excludes)
-    }
+    private fun openid(): String = prefs.getString("openid", "").orEmpty().trim()
 
     // ---------------------------------------------------------------- 打卡
 
@@ -159,6 +243,12 @@ class MainActivity : AppCompatActivity(), RunListener {
                 val code = prefs.getString("placeCode", "").orEmpty()
                 area = AreaStore.snapshot().firstOrNull { it.placeCode == code }
                     ?: AreaStore.snapshot().firstOrNull()
+                // 兜底选中的场地也记下来，下次启动直接用
+                area?.let { a ->
+                    if (a.placeCode != code) {
+                        prefs.edit().putString("placeCode", a.placeCode).apply()
+                    }
+                }
 
                 // 整条轨迹一次性生成好，再按进度逐段显示 —— 「实时轨迹」不需要真定位
                 area?.let { a ->
@@ -231,6 +321,8 @@ class MainActivity : AppCompatActivity(), RunListener {
                 return false
             }
             AreaStore.publish(oid, list)
+            // 落盘：下次冷启动不用先打网络就能画出边界、自动选中同一个场地
+            AreaCache.save(applicationContext, oid, list)
             return list.isNotEmpty()
         }
     }
