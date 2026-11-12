@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  流体设计的尺寸刻度。
+
+  比旧版的 10/12/18dp 更「胖」：卡片 24dp、按钮做成胶囊（高度的一半）、
+  留白 20dp 起步 —— ColorOS 16 那一套是圆润、通透、大留白。
+-->
+<resources>
+    <!-- 卡片圆角：设置卡片、玻璃面板 -->
+    <dimen name="radius_card">24dp</dimen>
+    <!-- 分组卡片（整组设置项共用一张）：比单卡片更圆，参照 ColorOS 设置页 -->
+    <dimen name="radius_group">28dp</dimen>
+    <!-- 内嵌小块：输入框、分段选中块 -->
+    <dimen name="radius_inner">18dp</dimen>
+    <!-- 胶囊按钮：height / 2，保证两头是正圆弧 -->
+    <dimen name="radius_pill">999dp</dimen>
+
+    <!-- 设置行：左右内边距与最小高度（参照 ColorOS 设置页的行高） -->
+    <dimen name="row_padding_h">20dp</dimen>
+    <dimen name="row_min_height">56dp</dimen>
+    <!-- 行右侧取值的最大宽度：再宽就会把标题挤没 -->
+    <dimen name="row_value_max_width">180dp</dimen>
+
+    <dimen name="gap_screen">20dp</dimen>
+    <dimen name="gap_card">20dp</dimen>
+    <dimen name="gap_section">28dp</dimen>
+</resources>

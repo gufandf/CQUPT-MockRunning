@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  分组卡片（参照 ColorOS 设置页）：整组行共用一张大圆角实心面。
+
+  和 @drawable/box 的区别：
+    · box 是「玻璃卡片」，半透明 + 顶部高光 + 描边，卡片自己是一个内容块；
+    · card_group 是「列表容器」，里面是一行行设置项，行与行之间用细分割线，
+      所以它必须**实心、无描边**，否则分割线和圆角都会显得脏。
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/box" />
+    <corners android:radius="@dimen/radius_group" />
+</shape>

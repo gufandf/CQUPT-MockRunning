@@ -4,8 +4,6 @@
  * 这块逻辑是为「填完 openid 主页不刷新」修的（v1.9.1），但它同时决定
  * 「什么时候该自动补拉、什么时候不该」。纯逻辑、不碰 Android，
  * 所以直接在 JVM 上把几种组合钉死，免得以后改回去。
- *
- * 作者：WilliTourt的蓝色大肥鱼 🐟
  */
 package com.whale.campusrun
 

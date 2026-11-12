@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    二级页：关于。
+
+  版本号 + 本项目的开源仓库（打开 / 复制）+ 一行原仓库出处 + 一段简短说明。
+  这里**不放作者署名**，也不讲实现原理 —— 说明只留使用者真正需要知道的
+  （隐私、轨迹、要注意什么）。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/bg"
+    android:orientation="vertical">
+
+    <include layout="@layout/settings_topbar" />
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:clipToPadding="false"
+        android:paddingBottom="24dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingTop="12dp">
+            <LinearLayout
+                style="@style/SettingsGroup">
+
+                <com.whale.campusrun.SettingsRow
+                    android:id="@+id/rowVersion"
+                    app:rowTitle="版本号"
+                    app:rowValue="—"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+
+                <com.whale.campusrun.SettingsRow
+                    android:id="@+id/rowRepoOpen"
+                    app:rowTitle="本项目仓库"
+                    app:rowSummary="@string/repo_this_summary"
+                    app:rowChevron="true"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+
+                <com.whale.campusrun.SettingsRow
+                    android:id="@+id/rowRepoCopy"
+                    app:rowTitle="复制仓库地址"
+                    app:rowAccent="true"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+
+                <!-- 原仓库：只作出处说明，不可点也不复制 —— 本次改动的分支不在这里 -->
+                <com.whale.campusrun.SettingsRow
+                    android:id="@+id/rowRepoOrigin"
+                    app:rowTitle="原仓库"
+                    app:rowSummary="@string/repo_origin_summary"
+                    app:rowDivider="false"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+
+            </LinearLayout>
+
+            <LinearLayout
+                style="@style/SettingsGroup">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:lineSpacingExtra="4dp"
+                    android:paddingStart="@dimen/row_padding_h"
+                    android:paddingTop="16dp"
+                    android:paddingEnd="@dimen/row_padding_h"
+                    android:paddingBottom="16dp"
+                    android:text="@string/about_body"
+                    android:textColor="@color/fg_dim"
+                    android:textSize="13sp" />
+            </LinearLayout>
+
+        </LinearLayout>
+    </ScrollView>
+</LinearLayout>

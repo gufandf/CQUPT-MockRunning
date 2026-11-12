@@ -2,30 +2,32 @@
  * 前台服务：只为"保命"。
  *
  * 手机揣兜里跑 11 分钟，App 在后台很容易被系统回收。挂上前台服务 + 常驻通知，
- * 进程就不会被随手杀掉；通知栏里还能直接看到进度。
+ * 进程就不会被随手杀掉。
+ *
+ * 通知本身交给 [LiveCapsule] —— 走 Android 16 的 Live Updates（ProgressStyle +
+ * 提升为实时活动），ColorOS 16 的流体云会把同一套 API 的通知收成胶囊。
+ * 所以既不需要 OPPO 私有 SDK，也不需要厂商白名单。
+ *
+ * 旧版那条「通知栏里铺三行文字」的进度提示已经删掉了：
+ * 同样的信息现在在胶囊和展开后的实时活动里，铺两遍只是噪音。
  *
  * 不申请任何定位权限。
- * 作者：蓝色大肥鱼 🐟
  */
 package com.whale.campusrun
 
-import android.app.Notification
-import android.app.NotificationChannel
 import android.app.NotificationManager
-import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
-import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 
 class RunService : Service(), RunListener {
 
     companion object {
-        const val CHANNEL = "campusrun.progress"
+        const val CHANNEL = LiveCapsule.CHANNEL
         const val NOTI_ID = 1001
 
         fun start(ctx: Context) {
@@ -45,13 +47,26 @@ class RunService : Service(), RunListener {
     private lateinit var nm: NotificationManager
     private var wakeLock: PowerManager.WakeLock? = null
 
+    /**
+     * 上一次发出去的整数百分比。
+     *
+     * 状态机一秒能推好几次，但实时活动每发一次都要走一遍系统渲染，
+     * 而且流体云胶囊对高频刷新并不友好。只在百分比真的变了才重发。
+     * -1 表示「还没发过」，第一次一定发。
+     */
+    private var lastPct = -1
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
         nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        createChannel()
-        startForeground(NOTI_ID, build(RunController.state))
+        LiveCapsule.ensureChannel(this)
+        // startForeground 必须给一条通知；起始状态就是「准备中」的胶囊
+        val first = LiveCapsule.build(this, RunController.state)
+        startForeground(NOTI_ID, first)
+        // 一次性把「这台机器到底能不能出胶囊」写进日志，省得用户对着通知栏猜
+        RunController.logFromUi("流体云：${LiveCapsule.diagnose(this, first)}")
         RunController.addListener(this)
         acquireWakeLock()
     }
@@ -107,47 +122,6 @@ class RunService : Service(), RunListener {
         if (!RunController.running) stopSelf()
     }
 
-    // ---------------------------------------------------------------- 通知
-
-    private fun createChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val ch = NotificationChannel(
-                CHANNEL, "打卡进度", NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = "校园跑打卡时的实时进度"
-                setShowBadge(false)
-            }
-            nm.createNotificationChannel(ch)
-        }
-    }
-
-    private fun build(s: RunState): Notification {
-        val open = PendingIntent.getActivity(
-            this, 0,
-            Intent(this, MainActivity::class.java)
-                .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        )
-
-        val pct = if (s.metersTotal > 0)
-            (s.metersDone / s.metersTotal * 100).toInt().coerceIn(0, 100) else 0
-
-        val eta = if (s.etaSec >= 0) RunEngine.fmtDuration(s.etaSec) else "--:--"
-        val line = "%.2f/%.2f km　·　剩 %s　·　%s"
-            .format(s.metersDone / 1000.0, s.metersTotal / 1000.0, eta, s.phase)
-
-        return NotificationCompat.Builder(this, CHANNEL)
-            .setSmallIcon(R.drawable.ic_run)
-            .setContentTitle("校园跑进行中　$pct%")
-            .setContentText(line)
-            .setProgress(100, pct, false)
-            .setOngoing(true)
-            .setOnlyAlertOnce(true)
-            .setContentIntent(open)
-            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
-            .build()
-    }
-
     override fun log(line: String) {
         // 通知里不显示日志，忽略
     }
@@ -157,8 +131,13 @@ class RunService : Service(), RunListener {
             stopSelf()
             return
         }
+        val pct = if (s.metersTotal > 0)
+            (s.metersDone / s.metersTotal * 100).toInt().coerceIn(0, 100) else -1
+        val mustSend = s.finished || s.failed || pct != lastPct
+        if (!mustSend) return
+        lastPct = pct
         try {
-            nm.notify(NOTI_ID, build(s))
+            nm.notify(NOTI_ID, LiveCapsule.build(this, s))
         } catch (_: Throwable) {
         }
     }

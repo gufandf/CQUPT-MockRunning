@@ -4,6 +4,10 @@
 > 解包后 89 个文件 / 812,797 字节，主逻辑 `app-service.js` 151KB
 > 包内自报域名 `sport.cqupt.edu.cn` → **确认目标就是重邮智慧体育**
 
+> 另一份逆向报告：**ColorOS 计算器的触摸动效**（液体按钮 / 液体弹出菜单）
+> 见 [`REA-CALCULATOR-FLUID.md`](REA-CALCULATOR-FLUID.md) —— 那是给 App 界面抄公式用的，
+> 和本文件的打卡链路无关。
+
 ---
 
 ## 0. 结论速览
@@ -97,12 +101,12 @@ function doCheckBinding(res, rej, wxCode) {
 | GET | `/area/getAllArea` | **⭐ 区域多边形唯一有效来源** |
 | GET | `/areaFunc/getFunc` | 功能字典：`dkq`=打卡区 `dzwl`=电子围栏 `jpq`=禁跑区 |
 | GET | `/areaModel/listAll/{x}` | **实测返回空对象 `{}`，不可用** |
-| GET | `/sportPoint/listAll/{placeCode}` | 实测返回 `[]` |
+| GET | `/sportPoint/listAll/{sportRecordNo}` | **⭐ 历史轨迹唯一来源**，见 [§4.4](#44-历史轨迹获取实测) |
 | POST | `/sportRecord/sport/start2` | **开始跑步**，见 2.2.1 |
 | GET | `/sportRecord/sport/continue/{no}` | 继续 |
 | POST | `/sportRecord/sport/end/{no}` | **结束跑步**，无 body |
-| GET | `/sportRecord/info/{no}` | 详情，返回 `{mileage, timeConsuming, points}` |
-| GET | `/sportRecord/mobile/list/{pageNo}/{pageSize}` | 历史记录 |
+| GET | `/sportRecord/info/{no}` | 详情。**`points` 基本恒为空**，别当轨迹源，见 §4.4 |
+| GET | `/sportRecord/mobile/list/{pageNo}/{pageSize}` | 历史记录列表，支持 `placeCode` / `isValid` / `sportDateStr` 过滤 |
 | POST | `/sportRecord/point/saveListByNo` | **上传轨迹点（主力）**，timeout 10s |
 | POST | `/sportRecord/point/uploadPoints` | 补传异常点 |
 | POST | `/sportRecord/point/uploadPointsJson` | 同上 |
@@ -233,6 +237,95 @@ uploadPoints(a).then(res => {
 ```
 服务端**回传 `expiredCountInForbiddenArea`**，即禁区超限次数。说明服务端确实在算，
 但算的依据是你上传的点，而不是真实 GPS。
+
+### 4.4 历史轨迹获取（实测）
+
+> 2026-11-12 实测，账号 62 条记录 / 30 条带轨迹。踩坑点全部在这里。
+
+**读轨迹只有一个接口：`GET /sportPoint/listAll/{sportRecordNo}`。**
+
+参数名 `listAll{v}` 看着像 `placeCode`（旧报告就是这么写的），但实测：
+
+| 传值 | 返回 |
+|---|---|
+| `T1001`（placeCode） | `[]` |
+| `1700941_T1001_20261111120538`（sportRecordNo） | 791 个点 ✓ |
+| `NOPE` / 任意乱码 | `[]`，`code` 仍是 `10200`，不报错 |
+| 空 | HTTP 400 |
+
+所以判断「没轨迹」和「参数传错」的响应完全一样 —— 只能靠记录号本身对不对来区分。
+
+**`/sportRecord/info/{no}` 的 `points` 不可用。** 62 条记录里 `info.points` 只有 3 条非空
+（21 / 42 / 602 点），其余全 `[]`，且这 3 条恰好 `listAll` 返回 `[]` —— 两个接口的存储不是同一份。
+同一条记录的 `info.mileage` 也常年是 `0.0`，和列表里的 2.19 对不上：
+
+```
+1700941_T1001_20261111120538   列表 mileage=2.19  →  info mileage=0.0, points=[]
+```
+
+**`/sportRecord/mobile/list/{pageNo}/{pageSize}` 的实际行为**
+
+- 排序：`startTime` 倒序，全局一致
+- `pageSize` 上限 **100**，传 500 也只回 100；`pageNo` 从 1 起，传 0 / 负数按 1 处理
+- 越界页（`pageNo > totalPage`）返回 `list: []`、`currPage` 原样回显，不报错
+- 支持 query 过滤，实测生效的三个：
+
+| 参数 | 实测 |
+|---|---|
+| `placeCode=T1001` | 62 → 44 |
+| `isValid=2` | 62 → 13 |
+| `sportDateStr=2026-11-11` | 62 → 1（**带横线**；传 `20261111` 得到 0 条） |
+
+  `startDate` / `endDate` / `beginDate` / `startTime` / `studentNo` / `orderBy` 都是**无效参数**：
+  要么被忽略（返回全量 62），要么触发 400（`startTime` 带空格未编码时）。
+
+**点对象字段**
+
+```json
+{
+  "id": 5796913805,
+  "sportPointNo": "IK1PNCED",
+  "sportRecordNo": "1700941_T1001_20261111120538",
+  "longitude": "106.60716695958189",     ← 字符串，不是数字
+  "latitude": "29.53220225691604",       ← 字符串
+  "collectTime": "2026-11-11 12:18:49",
+  "isValid": "1",
+  "afterPoints": null,
+  "createBy": "1700941",
+  "createName": "徐辉",
+  "createTime": "2026-11-11T12:18:45.000+08:00",
+  "remark": "风华运动场_T1001"
+}
+```
+
+- `listAll` 返回的是**时间倒序**（最新点在最前），画图/算距离前必须 reverse
+- `longitude` / `latitude` 是**字符串**，直接参与四则运算会炸，要 `float()` 一下
+- `remark` = `<placeName>_<placeCode>`，不带 placeCode 的字段只有这个来源
+- 上传时客户端填的 `placeName` / `placeCode` **没有落库**，回读时字段不存在
+- `sportPointNo` 是 8 位大写字母数字，服务端生成
+
+**有的记录就是没有轨迹。** 62 条里 32 条 `listAll` 返回 `[]`，其中包括 13 条 `isValid=1`、
+`mileage=2.01` 的有效合格记录。所以「列表显示 2km 但拉不到轨迹」是正常现象，不是接口用法错：
+
+```
+成绩表(27条) ∩ listAll有痕迹          → 23 条
+成绩表命中但 listAll 空               → 1 条
+成绩表没命中但 listAll 有点           → 7 条
+两边都空                              → 28 条
+```
+
+**鉴权**：所有接口都要 `token` 头，缺失时 `{"code":"40401","msg":"未携带token"}`。
+但 `sportRecordNo` **不校验归属** —— 随便换个前缀 `9999999_T1001_...` 也返回 `10200`
+和同一个人的 `points`，越权读轨迹只需要知道记录号。记录号格式
+`<unifyId>_<placeCode>_<yyyyMMddHHmmss>`，是可枚举的。
+
+**一键拉取**：`refs/fetch_tracks.py`（列表 + 轨迹 + GeoJSON/CSV 导出）、
+`refs/plot_tracks.py`（叠加出图）。
+
+```bash
+python refs/fetch_tracks.py --openid OPENID --geojson run/tracks.geojson --csv run/tracks.csv
+python refs/plot_tracks.py run/tracks.geojson --place T1001 -o run/T1001.png
+```
 
 ---
 

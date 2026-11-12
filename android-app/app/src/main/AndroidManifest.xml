@@ -9,6 +9,11 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- 流体云 / 实时活动：Android 16 的「可提升的常驻通知」要这条普通权限。
+         ColorOS 16 的流体云就是读这套原生 API 把通知收成胶囊的，
+         少了它就是一条普通通知，进不了胶囊。
+         低版本系统不认识这条权限，会被自动忽略，不影响安装。 -->
+    <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
 
     <!-- CPU 锁：息屏后不让 CPU 睡过去，否则 sleep 会睡过头把整轮拖长 -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
@@ -29,9 +34,11 @@
         <meta-data
             android:name="author"
             android:value="@string/app_author" />
+        <!-- 版本号由 Gradle 的 manifestPlaceholders 注入（来源 android-app/version.properties），
+             不要在这里手写 —— 以前手写过，跟 build.gradle 各写一份，就漏同步过。 -->
         <meta-data
             android:name="version"
-            android:value="1.11.0" />
+            android:value="${appVersion}" />
 
         <activity
             android:name=".MainActivity"
@@ -52,13 +59,22 @@
             android:label="@string/log_page"
             android:parentActivityName=".MainActivity" />
 
-        <!-- 设置页：整合统计、上手、配置 -->
+        <!-- 设置首页：只放分组入口（分层结构的第一层） -->
         <activity
             android:name=".SettingsActivity"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:exported="false"
             android:label="@string/settings"
             android:parentActivityName=".MainActivity" />
+
+        <!-- 设置二级页：一个 Activity + 七套布局，按 EXTRA_GROUP 选
+             （账号与场地 / 跑步参数 / 成绩统计 / 使用教程 / 流体云 / 外观 / 关于） -->
+        <activity
+            android:name=".SettingsGroupActivity"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:exported="false"
+            android:label="@string/settings"
+            android:parentActivityName=".SettingsActivity" />
 
         <service
             android:name=".RunService"

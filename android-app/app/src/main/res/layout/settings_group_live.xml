@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    二级页：流体云。
+
+  一行状态（能不能出胶囊）+ 一行动作（发条测试胶囊）。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/bg"
+    android:orientation="vertical">
+
+    <include layout="@layout/settings_topbar" />
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:clipToPadding="false"
+        android:paddingBottom="24dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingTop="12dp">
+            <LinearLayout
+                style="@style/SettingsGroup">
+
+                <com.whale.campusrun.SettingsRow
+                    android:id="@+id/rowLiveState"
+                    app:rowTitle="系统胶囊"
+                    app:rowValue="检查中…"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+
+                <com.whale.campusrun.SettingsRow
+                    android:id="@+id/rowLivePreview"
+                    app:rowTitle="@string/live_preview"
+                    app:rowAccent="true"
+                    app:rowDivider="false"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+
+            </LinearLayout>
+
+            <LinearLayout
+                style="@style/SettingsGroup">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:lineSpacingExtra="4dp"
+                    android:paddingStart="@dimen/row_padding_h"
+                    android:paddingTop="16dp"
+                    android:paddingEnd="@dimen/row_padding_h"
+                    android:paddingBottom="16dp"
+                    android:text="@string/live_hint"
+                    android:textColor="@color/fg_dim"
+                    android:textSize="13sp" />
+            </LinearLayout>
+
+        </LinearLayout>
+    </ScrollView>
+</LinearLayout>

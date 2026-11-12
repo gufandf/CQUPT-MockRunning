@@ -3,8 +3,6 @@
  *
  * 主页不再铺日志（只显示最后一行摘要），完整日志都在这里。
  * 顶栏固定显示「日志」和返回箭头，与设置页一致。
- *
- * 作者：WilliTourt的蓝色大肥鱼 🐟
  */
 package com.whale.campusrun
 
@@ -15,8 +13,6 @@ import android.content.Intent
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.widget.Button
-import android.widget.ImageButton
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
@@ -35,14 +31,8 @@ class LogActivity : AppCompatActivity(), RunListener {
         logScroll = findViewById(R.id.logScroll)
         tvLog = findViewById(R.id.tvLog)
 
-        findViewById<ImageButton>(R.id.btnBack).setOnClickListener { finish() }
-        findViewById<Button>(R.id.btnShare).setOnClickListener { share() }
-        findViewById<Button>(R.id.btnCopy).setOnClickListener { copy() }
-        findViewById<Button>(R.id.btnClear).setOnClickListener {
-            tvLog.text = ""
-            // 只清显示，单例里还留着最近 400 行 —— 和以前的行为保持一致
-            toast(getString(R.string.log_cleared))
-        }
+        findViewById<LiquidButton>(R.id.btnBack).setOnClickListener { finish() }
+        findViewById<LiquidButton>(R.id.btnMore).setOnClickListener { openMore() }
 
         // 进来先铺一次全量快照
         render(RunController.logSnapshot())
@@ -81,6 +71,31 @@ class LogActivity : AppCompatActivity(), RunListener {
 
     override fun onState(s: RunState) {
         // 日志页不显示仪表盘
+    }
+
+    /**
+     * 「更多」= 液体弹出菜单。
+     *
+     * 这三个动作（导出 / 复制 / 清空）以前是三个平铺按钮，占掉整行；
+     * 现在收进菜单，菜单会从按钮沿重力弧飞出来 —— 见 FluidPopupMenu。
+     */
+    private fun openMore() {
+        val items = listOf(
+            FluidMenuItem(getString(R.string.b_share_log)),
+            FluidMenuItem(getString(R.string.b_copy_log)),
+            FluidMenuItem(getString(R.string.b_clear_log))
+        )
+        FluidPopupMenu.build(this, findViewById(R.id.btnMore), items) { index ->
+            when (index) {
+                0 -> share()
+                1 -> copy()
+                2 -> {
+                    tvLog.text = ""
+                    // 只清显示，单例里还留着最近 400 行 —— 和以前的行为保持一致
+                    toast(getString(R.string.log_cleared))
+                }
+            }
+        }.show()
     }
 
     private fun copy() {

@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 液体按钮的自定义属性 -->
+<resources>
+    <declare-styleable name="LiquidButton">
+        <!-- 配色：accent = 主按钮（渐变实心），danger = 结束打卡，ghost = 次要按钮 -->
+        <attr name="liquidTone" format="enum">
+            <enum name="accent" value="0" />
+            <enum name="danger" value="1" />
+            <enum name="ghost" value="2" />
+            <!-- 第三级：文字链（无底无描边），同 ghoss 一样有按压/拖动反馈 -->
+            <enum name="text" value="3" />
+            <enum name="muted" value="4" />
+        </attr>
+        <!-- 纯图标按钮：图标画在胶囊内部，跟着按钮一起缩放（顶栏的日志 / 设置 / 返回用它） -->
+        <attr name="liquidIcon" format="reference" />
+        <!-- 图标着色，默认 @color/fg；不要写死色值 -->
+        <attr name="liquidIconTint" format="color" />
+        <!-- 形变余量：胶囊本体 = 尺寸 − 2×这个值。默认按高度 17.5%（上限 16dp） -->
+        <attr name="liquidRoom" format="dimension" />
+    </declare-styleable>
+    <!-- 设置行（参照 ColorOS 设置页）：标题 + 可选描述 + 右侧取值 / 箭头 -->
+    <declare-styleable name="SettingsRow">
+        <attr name="rowTitle" format="string" />
+        <attr name="rowSummary" format="string" />
+        <attr name="rowValue" format="string" />
+        <!-- 右侧箭头：可点的行才有 -->
+        <attr name="rowChevron" format="boolean" />
+        <!-- 标题用主色，表示这是一行动作（连接 / 刷新 …） -->
+        <attr name="rowAccent" format="boolean" />
+        <!-- 行下方的分割线，整组最后一行设 false -->
+        <attr name="rowDivider" format="boolean" />
+    </declare-styleable>
+</resources>

@@ -16,8 +16,10 @@
         <item name="colorAccent">@color/accent</item>
         <item name="android:textColorPrimary">@color/fg</item>
         <item name="android:textColorSecondary">@color/fg_dim</item>
-        <item name="android:statusBarColor">@color/box</item>
-        <item name="android:navigationBarColor">@color/bg</item>
+        <!-- 状态栏取光场的起点色、导航栏取终点色：两条系统栏与渐变无缝接上，
+             不再是一条突兀的色带（v1.9.0 修过一次色带，这次是换成渐变后的同一问题）。 -->
+        <item name="android:statusBarColor">@color/bg</item>
+        <item name="android:navigationBarColor">@color/bg_deep</item>
         <item name="android:windowLightStatusBar">true</item>
         <item name="android:windowLightNavigationBar">true</item>
         <item name="android:colorControlActivated">@color/accent</item>

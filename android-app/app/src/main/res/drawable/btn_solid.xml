@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 主按钮：胶囊形 + 从 accent 到 accent_deep 的竖向渐变 -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
-    <solid android:color="@color/accent" />
-    <corners android:radius="18dp" />
+    <gradient
+        android:angle="270"
+        android:endColor="@color/accent_deep"
+        android:startColor="@color/accent"
+        android:type="linear" />
+    <corners android:radius="@dimen/radius_pill" />
 </shape>

@@ -1,6 +1,5 @@
 /*
  * 打卡流程编排：token → 规则 → 区域 → start2 → 分批上传 → end
- * 作者：蓝色大肥鱼 🐟
  */
 package com.whale.campusrun
 
@@ -63,7 +62,11 @@ data class StatRow(
     val durationSec: Int,
     val timeText: String,
     val valid: Boolean,
-    val reason: String
+    val reason: String,
+    /** "11-09" 这种短日期；拿不到时间戳时是空串（时间轴会退回「第 N 次」）。 */
+    val dateLabel: String = "",
+    /** 该条的配速（秒/公里），距离为 0 时是 0。 */
+    val paceSecKm: Double = 0.0
 )
 
 data class Stats(
@@ -72,6 +75,8 @@ data class Stats(
     val invalidCount: Int,
     val totalKm: Double,
     val avgPaceSecKm: Double,
+    /** 有效成绩里最快的一条（秒/公里），没有有效成绩时是 0。 */
+    val fastestPaceSecKm: Double = 0.0,
     val byPlace: List<Pair<String, Int>>,
     val rows: List<StatRow>
 )
@@ -286,7 +291,22 @@ class RunEngine(private val api: Api, private val l: RunListener) {
             val place = str(o, "placeName")
             val reason = str(o, "reason")
 
-            rows.add(StatRow(place, km, dur, fmtDuration(dur), valid, reason))
+            rows.add(
+                StatRow(
+                    placeName = place,
+                    distanceKm = km,
+                    durationSec = dur,
+                    timeText = fmtDuration(dur),
+                    valid = valid,
+                    reason = reason,
+                    dateLabel = StatsParse.dateLabel(
+                        o.optString("sportRecordNo").ifEmpty { o.optString("recordNo") },
+                        o.optString("createTime").ifEmpty { o.optString("startTime") }
+                            .ifEmpty { o.optString("time") }
+                    ),
+                    paceSecKm = if (km > 0.01) dur / km else 0.0
+                )
+            )
             if (valid) {
                 validCount++
                 totalKm += km
@@ -298,12 +318,14 @@ class RunEngine(private val api: Api, private val l: RunListener) {
         }
 
         val avgPace = if (totalKm > 0) totalSec / totalKm else 0.0
+        val fastest = rows.filter { it.valid && it.paceSecKm > 0 }.minOfOrNull { it.paceSecKm } ?: 0.0
         return Stats(
             total = rows.size,
             validCount = validCount,
             invalidCount = invalidCount,
             totalKm = totalKm,
             avgPaceSecKm = avgPace,
+            fastestPaceSecKm = fastest,
             byPlace = byPlace.entries.sortedByDescending { it.value }.map { it.key to it.value },
             rows = rows
         )
@@ -320,7 +342,8 @@ class RunEngine(private val api: Api, private val l: RunListener) {
         noise: Double,
         seed: Int,
         paceToleranceSec: Double = TrackGen.DEFAULT_PACE_TOLERANCE_SEC,
-        validate: Boolean = true
+        validate: Boolean = true,
+        burrs: Boolean = false
     ) {
         cancel = false
         var state = RunState(phase = "初始化", paceSecKm = paceSecKm, metersTotal = targetM)
@@ -351,9 +374,11 @@ class RunEngine(private val api: Api, private val l: RunListener) {
             targetM = targetM,
             noise = noise,
             seed = seed,
-            paceToleranceSec = paceToleranceSec
+            paceToleranceSec = paceToleranceSec,
+            burrs = burrs
         )
         val track = res.points
+        l.log("   轨迹模式：" + if (burrs) "毛刺 / 突起 开启" else "光滑（毛刺关闭）")
         l.log("   ${TrackGen.summarize(track)}  (耗时 ${System.currentTimeMillis() - t0} ms)")
 
         // 平均配速是否落在「目标 ± 容差」内

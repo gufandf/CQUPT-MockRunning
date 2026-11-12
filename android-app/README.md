@@ -1,7 +1,5 @@
 # 鲸鲸约跑
 
-> **作者：WilliTourt的蓝色大肥鱼 🐟** · v1.11.0
-
 替你跑完这两公里 · 你只管去刷脸。
 
 **不申请定位权限，不连服务器，不需要登录。**
@@ -12,34 +10,73 @@
 
 ## 界面结构
 
-**一个 Activity + 四个 panel**，底部一条悬浮切换栏。切页只改 `visibility`，
-不重建 Activity，也不引 Fragment / 导航库（守住「零第三方依赖」）。
+**两个页面，各只干一件事**（G1.11.1 起）。不引 Fragment / 导航库，
+页面之间走标准 Activity 转场，侧滑返回由系统提供（守住「零第三方依赖」）。
 
 ```
-主页                        统计
-├── 跑步区域                └── 成绩汇总 / 分场地 / 最近记录
-├── 配速 / 距离
-├── 配速抖动                 上手
-├── 电池白名单提示           ├── 使用教程
-├── 开始 / 结束打卡          ├── openid 输入 + 连接并拉取场地
-└── 实时仪表盘              └── 取码（openid 说明 + 提取脚本）
-（顶栏右上角小图标进【日志】页）
-
-                            设置
-                            ├── 主题（跟随系统 / 深色 / 浅色）
-                            ├── 说明信息
-                            ├── 开源仓库
-                            └── 署名
+主页 MainActivity                    设置 SettingsActivity
+├── 顶栏（标题 + 日志 + 设置）        ├── 账号：openid / 连接 / 场地
+├── 地图（边界 / 禁跑区 / 轨迹）      ├── 跑步：配速 / 距离 / 抖动 / 轨迹毛刺
+├── 倒计时（3 秒，盖在地图上）        ├── 统计：汇总 / 分场地 / 最近记录
+├── 状态卡（环 + 剩余 / 已跑 / 配速）  ├── 教程：使用步骤 + 取码脚本
+└── 底部固定【开始打卡】              ├── 流体云：胶囊状态 + 测试胶囊
+                                      ├── 外观：主题
+运行日志是独立一页 LogActivity        └── 关于：版本 / 本项目仓库 / 原仓库
 ```
 
-对应布局：`activity_main.xml`（顶栏 + 4 个 `<include>` + 悬浮栏）
-与 `panel_run / panel_stats / panel_start / panel_settings.xml`。
-四个 panel 的 `id` 全局唯一，`MainActivity.showTab()` 切可见性。
+主页**不塞表单**：场地 / 配速 / 距离 / 抖动都属于「设置」。
 
-> openid 填在【上手】页。填完切回主页时会**自动刷新场地列表**（`AreaStore` +
-> `onResume` 里的 `syncAreas()`），不需要先点一次【开始打卡】。
+### 开跑前的 3 秒倒计时
+
+点【开始打卡】后，地图上立刻盖一层倒计时（`CountdownView`）：压暗的地图 + 一个环 +
+大号秒数 + 一行「再点一次可取消」。**倒计时结束前再点一次按钮就取消。**
+
+它解决的是一个具体的体验问题：点下去之后引擎要先换 token、拉场地、生成轨迹，
+几百毫秒到一两秒不等，这段时间界面毫无反馈，人会以为没点上，于是再点一下 ——
+那一下就可能是重复触发。
+
+实现上有两个关键点：
+
+- **倒计时和数据准备并行**：3 秒足够把 token 换完、轨迹算好，于是倒计时一结束就
+  立刻开跑，不会出现「倒计时走完还要再等两秒」。弱网下倒计时先走完，就把状态改成
+  「准备中」继续等，数据到了再启动 —— 不为了凑这 3 秒去砍掉准备步骤。
+- **`runSeq` 作废旧结果**：取消时把序号 +1，在途的准备线程 post 回来发现序号对不上
+  就直接丢弃，不会把「上一轮的准备」跑到下一轮头上。
+
+倒计时期间按钮固定是【取消】（`refreshRunButton()` 提前 return），
+状态广播也不会盖掉仪表盘；离开页面（`onStop`）视为放弃，直接取消。
+
+> openid 填在设置页。填完回主页时会**自动刷新场地列表**（`AreaStore` +
+> `onResume` 里的自动补拉），不需要先点一次【开始打卡】。
 
 主题切换在【设置】页，是「跟随系统 / 深色 / 浅色」三段式，不是一个循环按钮。
+
+---
+
+## 流体云（G1.11.1 起）
+
+打卡进度是一条**实时活动通知**：状态栏上收成胶囊，展开是带进度条的卡片。
+在 ColorOS 16 上它就是**流体云**。
+
+走的是一条公开 API 的路，没有 OPPO 私有 SDK、没有厂商白名单：
+
+| 要求 | 做法 |
+|---|---|
+| 有标题 | `setContentTitle(...)` |
+| 常驻 | `setOngoing(true)` |
+| 合法样式 | `NotificationCompat.ProgressStyle`（四段 + 三个里程碑点） |
+| 主动申请提升 | `setRequestPromotedOngoing(true)` |
+| 清单声明 | `POST_PROMOTED_NOTIFICATIONS`（普通权限，装上就有） |
+| 胶囊短文案 | `setShortCriticalText("1.24 / 2.00 km")` |
+
+反面约束同样要守：不能是分组摘要、不能 `setColorized`、不能用自定义
+`RemoteViews`、通道重要性不能是 `IMPORTANCE_MIN` —— 踩中任一条就退回普通通知。
+
+`compileSdk` 因此提到 **36**（这套 API 到 Android 16 才有）；`targetSdk` 仍是 34。
+
+设置页的「流体云」分段会把三种失败原因分开讲：系统太老（< API 36）、
+没给通知权限、系统里「实时通知」被关掉。另有一条「发一条测试胶囊」，
+8 秒后自动消失，不用真跑一轮就能看效果。
 
 ### 连不上服务器时
 
@@ -59,64 +96,6 @@
 实现上把「网络层失败」和「业务层失败」分开了：`Api` 返回 `null` 是前者
 （弹上面这个框），返回了 JSON 但 `code != 10200` 是后者（提示 openid 未绑定之类）。
 原来的实现把两者都塞进一个 `lastError` 字符串，界面上根本分不出来。
-
----
-
-## 配速起伏与容差（v1.9.0 新增）
-
-主页不再让你选配速形态 —— 轨迹固定使用**温和起伏**：
-
-- 起步慢 → 中途数段快慢 → 越跑越累 → 尾声略冲
-- 叠入约 7% 时长的短暂停顿（「系鞋带 / 等让路」式，2 公里约 2~3 次）
-
-这是三层时间尺度叠加的结果：疲劳（整场）+ 地形（分钟级）+ 步频（十几秒级），
-权重归一化到均值 1。
-
-### 关键：起伏不参与达标判定
-
-**总时长和总里程与匀速完全一致**，因为：
-
-- 采样点数由 `配速 × 距离` 唯一确定（这点没变）
-- 起伏只决定这些秒里的速度**怎么分配**，权重数组归一化到均值 = 1
-- 距离标定的二分只负责把实测距离校准到目标值，与起伏互不干扰
-
-实测（风华运动场，2000m，15 秒滚动窗口）：分段配速约 **4'10" ~ 7'59"**。
-（滚动窗口才对应「跑者感受到的配速」—— 逐秒的瞬时配速在停顿处趋于无穷，取极值没意义。）
-
-### 配速抖动（容差）
-
-> 界面上叫「配速抖动」，代码里仍是 etTol / paceTol / paceToleranceSec ——
-> 换的只是用户可见文案，机制没动。
-
-主页多了一个「平均配速容差」输入，默认 **20 秒/公里**：
-
-```
-目标 5'45" + 容差 20s  →  平均配速被夹在 5'25" ~ 6'05"
-```
-
-生成后会校验实测平均配速是否落在窗口内，越界就按比例微调采样点数重算（最多 4 次），
-保证不会因为 GPS 噪声下限或起伏形态而飘出 `minPace`/`maxPace` 达标区间。
-窗口会在输入框下方实时显示。
-
-单元测试 `平均配速始终落在容差窗口内` 就是在钉住这条约束。
-
-### 汇报字段改成反推
-
-`speed` / `bearing` 现在是从**最终坐标**反推的，不再独立生成。
-这样上报的字段和轨迹严格自洽，不会出现「速度写着 3.0 m/s 但两点间距只有 1.2 米」。
-单元测试 `汇报速度与实际位移一致` 用 ±0.02m 容差钉住。
-
-### 顺带修掉的一个越界 bug
-
-内缩系数是**离散档位**（0.90 / 0.85 / …），而 GPS 噪声会把点横向推出十几米。
-某些 seed + 配速组合下，档位挑得再准也总有 1~2 个点被顶到围栏外
-（实测风华运动场 330s/km + seed=555 会出界 2 个点）。出界的点服务端不计里程，
-实测配速就被拉偏了。
-
-现在 `clampToFence()` 会把越界点沿「点 → 质心」连线二分拉回边界内侧，
-只动越界的那几个点、位移极小，对形态和配速标定的影响可忽略。
-[`refs/verify_pace_profile.py`](../refs/verify_pace_profile.py) 用 288 个组合
-（3 场地 × 3 形态 × 4 配速 × 8 seed）压过一遍，出界 0。
 
 ---
 
@@ -158,7 +137,7 @@ Activity.onCreate()
 
 ## 图标
 
-用的是插画版——蓝色大肥鱼本鱼在操场上跑。源图 1024×1024。
+用的是插画版——主角在操场上跑。源图 1024×1024。
 
 **踩过的坑**：自适应图标的画布是 108×108，但系统**只渲染中间 72×72 那一块**并套蒙版。
 我第一版预览时拿整块画布当圆，看起来"有个方框"，其实是预览比真实情况多露了一圈。
@@ -179,6 +158,49 @@ Activity.onCreate()
 
 ## 版本记录
 
+> **版本号规则变更**：从这一版起，版本号**只在明确要发版时才进位**。
+> 日常提交、修 bug、调样式都不动版本号 —— 全部写进 `CHANGELOG.md` 的 `[Unreleased]`。
+> 发版跑 `python release.py <major|minor|patch>`，它会改 `version.properties`、
+> 把 `[Unreleased]` 改名成正式版本、打出 APK。详见 [`AGENT.md` §5.1](../AGENT.md#51-版本号规则semver)。
+
+### vG1.11.1
+> 把 v1.10.0 之后的全部改动合成一个正式版本。1.10.1 / 1.11.0 / 1.12.0~1.19.0
+> 这些中间号只在仓库里建过条目、从没发布（`git tag` 只到 `v1.10.1`），内容全部并入这里。
+
+| 改动 | 说明 |
+|---|---|
+| 🗺 **主页收成一张地图** | 自绘 `MapCanvasView`：电子围栏（绿）/ 禁跑区（暗红）/ 按进度显现的轨迹（红），不接地图 SDK、不申请定位。开跑时整条生成，按已跑比例逐段显现 |
+| 🎯 **主页进度环** | `RunProgressView`：环心写百分比、弹簧推进不跳格，右侧竖排「剩余时间 / 已跑 / 配速」，不再是并排堆字 |
+| ⏳ **开跑前 3 秒倒计时** | 点【开始打卡】盖一层压暗遮罩 + 环 + 大号秒数；与「换 token / 拉场地 / 生成轨迹」并行，结束前再点一次即取消。弱网下倒计时先结束就转「准备中」继续等 |
+| 🧠 **记住场地** | `AreaCache` 把 openid + 场地多边形落盘，冷启动先还原再画地图，上次选中的场地自动选中；换 openid 清旧缓存 |
+| 📄 **两页结构** | 统计 / 教程 / 取码 / 外观 / 关于全进设置，主页只留地图 + 底部固定【开始打卡】；底部四页悬浮栏（四个 `panel_*.xml`）删除 |
+| 🗂 **设置分两层** | 首页只列七个分组入口 + 当前取值摘要；表单进二级页，`SettingsGroupActivity` 按 `EXTRA_GROUP` 加载七套布局，骨架只有一份 |
+| 🧾 **设置页照 ColorOS 重排** | 一整组一张 28dp 圆角卡片，卡片里一行一项（`SettingsRow`：标题 + 说明 + 取值 + 箭头 + 缩进细线）；动作也做成一行主色文字；顶栏固定不随内容滚 |
+| 🎡 **数字改滚轮** | 配速（分/秒两列）、距离（0.1 步进）、抖动（5 秒步进）各一张卡片，卡片内直接鼓轮，能甩能吸附；下面一排胶囊 chip 做快捷值 |
+| ⌨️ **openid 改弹窗** | 行右侧只显示掩码，点开是「标题 + 说明 + 行内输入 + 28 位计数 + 粘贴/清除 + 取消/保存」，保存后自动连一次 |
+| 🔋 **电池白名单移入设置** | 跑步参数页新增一行，右侧显示已加入 / 未加入；主页只留进度和开始按钮 |
+| 🎚 **「轨迹毛刺」开关** | 设置 → 跑步参数，**默认关闭** = 光滑轨迹；打开后叠多圈错位、四层 AR(1) 噪声、四档稀疏野点（1 秒尖刺 / 2 秒锯齿 / 一~九秒三角绕行 / 偶尔 10m+ 大跳） |
+| 🌀 **环线有机化** | 六条整数圈正弦 + 3~5 处局部鼓包 + 一轮磨角，整数圈保证闭合，鼓包让每圈都不一样 |
+| 🛡 **越界只削毛刺** | 先验证基准环合法；越界沿「基准点 → 噪声点」二分收短，只削掉越界那一截，`clampToFence()` 降为兜底 |
+| ⚡ **成绩页进页面自动刷新** | 打开就拉一次，失败时渲染成空态；`RefreshScrollView` 支持下拉 + 上拉，过 64dp 松手刷新 |
+| 🕒 **成绩统计改时间轴** | 顶部「N 次有效 · 里程 · 均配 · 最快 + 分场地」，下面竖线 + 圆点时间轴，最新带标记；无效记录折叠在底部默认收起 |
+| 🧮 **日期解析抽成 `StatsParse`** | 从记录号尾部 14 位时间戳取 MM-dd，秒级 / 毫秒级都认，取不到退回「第 N 次」，不编假日期 |
+| ☁️ **流体云胶囊** | 打卡进度收进状态栏胶囊，展开是实时活动（四段分色进度条 + 里程碑点）。走 Android 16 Live Updates 公开 API：`ProgressStyle` + `setRequestPromotedOngoing(true)` + 清单 `POST_PROMOTED_NOTIFICATIONS`，**没有** OPPO 私有 SDK 与厂商白名单 |
+| 💧 **液体按钮** | 逆向 ColorOS 计算器触摸动效：面积守恒形变（迎风侧拉 `s`、垂直侧压 `1/s`）、三个弹簧分管按下 / 拖动 / 松手、位移走橡皮筋渐近 28dp；弹簧改解析解，大 dt 不发散 |
+| 🐌 **按压只是微微收缩** | ColorOS 的 0.85~0.97 是给 90dp 小按键定的，套到整宽胶囊上会「塌一下」；区间收到 **0.955~0.985**（主按钮 ≈0.973、图标钮 ≈0.959），按下只给「接触到了」的反馈 |
+| 🍃 **液体弹出菜单** | 选项从锚点沿被重力压弯的贝塞尔弧飞入，缩放与透明度三条弹簧节奏错开；场地选择由 `Spinner` 换成它，日志页导出 / 复制 / 清空收进顶栏「更多」 |
+| 🎨 **流体设计** | 纯色底 `bg`（不再是光场渐变）、24dp 圆角玻璃卡片 `box`、状态卡专用纯色 `card_status`、胶囊按钮 `radius_pill`、18dp 输入块 `field`、圆形图标底 `btn_circle` |
+| 🎚 **按钮分三级** | 主操作实心胶囊 / 次操作玻璃胶囊 / 文字链（无底无描边）；另加 `muted` 给弹窗「取消」。顶栏日志 / 设置 / 返回也换成 `LiquidButton` |
+| 🔢 **版本号单一来源** | `versionName` / `versionCode` 从 `android-app/version.properties` 读，清单用 `${appVersion}` 占位符；新增 `release.py` 与 `./gradlew :app:ver`。`version.prefix` 只是展示前缀（如 `G`），不参与 `versionCode` |
+| 🔧 **工具链** | compileSdk 34→36、AGP 8.5.2→8.13.2、Gradle 8.7→8.14.3、Kotlin 1.9.24→2.0.21、core-ktx 1.13.1→1.17.0。`targetSdk` 仍 34 |
+| 🐛 **修掉按钮「跳一下」** | 锚点曾照搬 ColorOS 的 auto-anchor（COUI 里默认关闭），手指越过死区时锚点翻转、瞬间位移 30+px；现在固定绕中心缩放 |
+| 📏 **主按钮与卡片同宽** | 【开始打卡】原来比上面的进度卡窄一圈（父容器 20dp 内边距 + 按钮自己又 16dp margin + `liquidRoom` 默认 16dp），现在去掉多余 margin、`liquidRoom` 收到 10dp（高度同步 92→84dp 保持胶囊本体同高），左右与卡片对齐 |
+| 🌑 **边缘光按下变弱** | 峰值从 200 压到 84，强度与描边宽度随按压深度反向收窄 —— 按下去是「沉进屏幕」，不是「往外糊一圈脏阴影」 |
+| 🐛 **修弹出菜单投影** | `PopupWindow` 内容在窗口边界会被裁（投影变方角、回弹过冲时边框被切），窗口比面板每边大 16dp |
+| 🐛 **修倒计时遮罩发灰** | 原先用 `@color/fg` 当遮罩色，深色主题的 `fg` 本身是浅色，一加透明度就像系统对话框；改用独立的 `@color/scrim`。倒计时期间地图占位提示收起，避免和大号秒数叠字 |
+| 🐛 **修「刷新中…」常挂** | 提前 return 时也收起指示器；**修跑完停在 99%**：收尾直接用目标里程，结束后停 6 秒回空闲态 |
+| 🧪 **测试** | `TrackGenTest` 扩到 12 例（毛刺开 / 关各跑一遍）、新增 `FluidMotionTest` 18 例 / `LiquidSpringTest` 9 例 / `StatsParseTest` 4 例，全量 **56 例**通过 |
+
 ### v1.9.1
 | 改动 | 说明 |
 |---|---|
@@ -191,7 +213,7 @@ Activity.onCreate()
 ### v1.9.0
 | 改动 | 说明 |
 |---|---|
-| 🏃 **配速温和起伏** | 逐秒速度按疲劳 / 地形 / 步频三层叠加，含少量短暂停顿。**不影响时长、里程和达标**。见上方专章 |
+| 🏃 **配速温和起伏** | 逐秒速度按疲劳 / 地形 / 步频三层叠加，含少量短暂停顿。**不影响时长、里程和达标** |
 | ⏱ **平均配速容差** | 主页可填容差（默认 20 秒/公里），生成后校验并微调，保证平均配速不飘出窗口 |
 | 🧭 **界面重构** | 主页只留打卡；openid 移进设置页；右上角两个小图标进入【日志】/【设置】；两页都有固定顶栏 |
 | 🎨 **修掉顶栏图标不可见** | 图标 `fillColor` 是纯白而亮色顶栏也是白底，白底白图标。改用 `app:tint="@color/fg"` |
@@ -318,68 +340,46 @@ App 自动：换 token → 生成轨迹 → start2 → 分批上传 → end
 
 ---
 
-## 为什么不需要 GPS
+## 构建
 
-`重邮智慧体育` 是纯客户端信任架构。轨迹点由小程序采集后直接 POST 给服务器，
-服务器只负责收点和算总距离 —— 它没有第二路数据源去核对你的点是不是真的。
-
-逆向细节见 [`../refs/FINDINGS.md`](../refs/FINDINGS.md)。
-
----
-
-## 构建 —— ✅ 已经帮你编好了
-
-**APK 在这里，直接拿走装：**
+**APK 直接拿走装：**
 
 ```
-campusrun\鲸鲸约跑-v1.8.apk      5.0 MB
+android-app/app/build/outputs/apk/release/app-release.apk    5.3 MB
 ```
 
-署名已经打进包里了——打开 App 界面底部和启动日志第一行都能看到
-**「鲸鲸约跑 v1.7 · 由 WilliTourt的蓝色大肥鱼 🐟 编写」**。
+版本号打在包里：界面【设置 → 说明】和启动日志第一行都能看到
+**「鲸鲸约跑 vG1.11.1」**。
 
-签名已验证（APK Signature Scheme v2，Android Debug key）。手机上打开时如果提示
-「未知来源」，选允许本次安装即可。
+签名是 APK Signature Scheme v2 + Android Debug key（自用项目不配 keystore）。
+手机上打开时如果提示「未知来源」，选允许本次安装即可。
 
-### 想自己重新编？（可选）
+### 工具链要求
 
-我这台机器上已经把工具链装好了，全部是绿色解压版，不写注册表：
+| 组件 | 版本 | 为什么 |
+|---|---|---|
+| JDK | **17+** | AGP 8.13 的硬性要求 |
+| Android SDK Platform | **36**（Android 16） | 流体云的 `ProgressStyle` / 提升为实时活动只有 API 36 才有 |
+| Build-Tools | 36.0.0 | 跟 platform 一起装 |
+| Gradle | 8.14.3（wrapper 自动下） | AGP 8.13.2 的要求 |
+| AGP / Kotlin | 8.13.2 / 2.0.21 | `androidx.core` 1.17 要求 AGP ≥ 8.9.1 |
 
-| 组件 | 位置 |
-|---|---|
-| JDK 17 (Temurin 17.0.20.1) | `E:\AndroidDev\jdk17\` |
-| Android SDK (platform 34 / build-tools 34.0.0 / platform-tools) | `E:\AndroidDev\sdk\` |
-| Gradle 8.7 | `E:\AndroidDev\gradle-8.7\` |
-| Gradle 编译缓存 | `%USERPROFILE%\.gradle\` |
+一条命令：
 
-合计约 2.2 GB。不想要了直接 `rmdir /s E:\AndroidDev` 删干净。
-
-> 上面这些是**开发机上的实际摆放**（都塞在 `E:\AndroidDev` 下，不进注册表、不改 PATH）。
-> 你按自己习惯的位置放就行，只要 `JAVA_HOME` 和 `ANDROID_HOME` 指对、Gradle 能找到 SDK 就成。
-
-重新编译一条命令：
-
-```powershell
-$env:JAVA_HOME  = 'E:\AndroidDev\jdk17'
-$env:ANDROID_HOME = 'E:\AndroidDev\sdk'
-E:\AndroidDev\gradle-8.7\bin\gradle.bat `
-  -p <仓库根目录>\android-app `
-  assembleRelease
+```bash
+cd android-app
+./gradlew assembleRelease        # Windows: gradlew.bat assembleRelease
 ```
 
-> 仓库里带了 **gradle wrapper**，所以也可以不用系统 Gradle：
-> ```powershell
-> cd android-app
-> .\gradlew.bat assembleRelease
-> ```
-> wrapper 第一次跑会自动下载 Gradle 8.7 到 `%USERPROFILE%\.gradle`。
+产物在 `app/build/outputs/apk/release/app-release.apk`。
 
-产物在 `android-app\app\build\outputs\apk\release\app-release.apk`。
+跑单元测试（验证配速标定和围栏判定，纯 JVM、不需要设备）：
 
-跑单元测试（验证配速标定和围栏判定）：
-
-```powershell
-E:\AndroidDev\gradle-8.7\bin\gradle.bat -p <上面那个路径> :app:testDebugUnitTest
+```bash
+cd android-app
+./gradlew :app:testDebugUnitTest
+# 报告：app/build/reports/tests/testDebugUnitTest/index.html
+# 当前 56 个用例（TrackGen 12 + AreaStore 13 + FluidMotion 18 + LiquidSpring 9 + StatsParse 4），全绿
 ```
 
 ### 如果不用我给你装的工具链
@@ -453,9 +453,11 @@ python get_openid.py
 
 ### 第四步：开始打卡，去走你的脸
 
-点【② 开始打卡】，然后把手机揣兜里，去操场。
+点【开始打卡】，然后把手机揣兜里，去操场。
 
-**App 需要保持在前台**（我加了 keepScreenOn，不会息屏）。别划掉它。
+**可以锁屏、可以切走**：跑步线程归单例 `RunController` 所有，前台服务守着进程，
+外加一把 `PARTIAL_WAKE_LOCK` 防止息屏后 CPU 睡过头。进度会收进流体云胶囊，
+下拉通知栏就能看，不用回到 App。**唯一不能做的是从最近任务里划掉它。**
 
 日志会实时刷新进度：
 
@@ -480,12 +482,7 @@ python get_openid.py
 
 **这部分我帮不了你，得你本人去。**
 
-小程序里根本不调相机。它在 `jpq` 类型的区域里只做一件事：`wx.vibrateShort` 连震十下，
-提醒你"该去扫脸了"。真正的人脸比对在操场上的物理摄像头里。
-
-这一点在客户端的代码里能直接验证：小程序内只有 `wx.previewImage` 预览人脸图，没有调用相机做人脸比对。
-
-所以配合方式是：**App 在后台（其实是前台）跑轨迹，你人在操场上走，挨个摄像头刷。**
+配合方式是：**App 在后台（其实是前台）跑轨迹，你人在操场上走，挨个摄像头刷。**
 
 ---
 
@@ -493,11 +490,6 @@ python get_openid.py
 
 **Q：为什么不需要定位权限？**
 A：因为根本不读 GPS。轨迹是本地算出来的，直接 POST 出去。
-
-**Q：会被检测到是在伪造吗？**
-A：服务端能看到的只有你 POST 的点。App 做了三件事让它看起来正常：
-配速精确匹配（不是恒定值）、航向连续变化（不是几个固定方向）、
-GPS 噪声符合真实手机的特征（AR(1) 相关噪声）。
 
 **Q：日志里 `isBind=false` 怎么办？**
 A：openid 不对。重新抓一次，注意别把 `openid=` 后面的 `&` 一起复制进去。
@@ -519,47 +511,67 @@ A：重来。但注意别在跑步过程中手动停止 —— 小程序那边�
 ```
 android-app/
 ├── settings.gradle.kts
+├── version.properties                  ← 版本号唯一来源（只有发版时才改）
 ├── build.gradle.kts
 ├── gradle.properties
 └── app/
     ├── build.gradle.kts
     ├── proguard-rules.pro
     └── src/main/
-        ├── AndroidManifest.xml           只申请 INTERNET 权限
+        ├── AndroidManifest.xml           联网 + 前台服务 + 通知（无定位权限）
         ├── java/com/whale/campusrun/
-        │   ├── TrackGen.kt               Geo 几何 + 轨迹生成（配速标定、有机化、噪声）
+        │   ├── TrackGen.kt               轨迹生成（配速标定、有机化、多尺度噪声、毛刺）
         │   ├── Api.kt                    协议客户端（HttpURLConnection，零第三方依赖）
         │   ├── RunEngine.kt              流程编排：token → 区域 → start2 → 上传 → end
-        │   └── MainActivity.kt           界面
+        │   ├── RunController.kt          单例：跑步线程 / 日志 / 状态广播
+        │   ├── RunService.kt             前台服务：保命 + 唤醒锁
+        │   ├── LiveCapsule.kt            流体云胶囊：RunState → 实时活动通知
+        │   ├── MapCanvasView.kt          自绘地图（围栏 / 禁跑区 / 轨迹）
+        │   ├── MainActivity.kt           主页
+        │   ├── SettingsActivity.kt       设置页
+        │   └── LogActivity.kt            日志页
         └── res/
-            ├── layout/activity_main.xml
-            ├── drawable/{box,btn_ghost,btn_solid}.xml
-            └── values/{colors,strings,themes}.xml
+            ├── layout/{activity_main,activity_settings,activity_log}.xml
+            ├── drawable/{card_status,box,field,btn_solid,btn_ghost,btn_circle,...}.xml
+            └── values/{colors,strings,themes,styles,dimens}.xml
+                values-night/ · values-v27/ · values-night-v27/
 ```
 
-依赖只有三个：`appcompat`、`core-ktx`、`material`。网络层手写 `HttpURLConnection`，
-JSON 用系统自带的 `org.json` —— 没有 OkHttp、没有 Retrofit、没有 Gson。
-这样工程好维护，也不会因为依赖版本问题编不过。
+依赖只有三个：`appcompat`、`core-ktx`（1.17，为了 `ProgressStyle`）、`material`。
+网络层手写 `HttpURLConnection`，JSON 用系统自带的 `org.json`
+—— 没有 OkHttp、没有 Retrofit、没有 Gson。
 
 ---
 
 ## 算法验证
 
-`TrackGen.kt` 有 **7 个单元测试**，跑在 JVM 上，输入是**从服务器真实抓下来的
-三个场地多边形**（含真实的 jpq 禁跑区）。全部通过：
+`TrackGen.kt` 有 **12 个单元测试**，跑在 JVM 上，输入是**从服务器真实抓下来的
+三个场地多边形**（含真实的 jpq 禁跑区）。**毛刺开 / 关两种模式都会跑一遍。**
+另有 13 个 `AreaStore` 用例覆盖场地缓存的状态机、18 个 `FluidMotion` + 9 个 `LiquidSpring`
+覆盖液体动效、4 个 `StatsParse` 覆盖日期退让，合计 **56 个用例，全绿**：
 
 ```
-套件 com.whale.campusrun.TrackGenTest   用例 7  失败 0  错误 0  耗时 0.42s
-   [PASS] 风华运动场 各配速都精确命中
-   [PASS] 所有点必须落在电子围栏内
-   [PASS] 不能有任何点落在禁跑区
-   [PASS] 太极运动场与宁静苑同样达标
-   [PASS] 轨迹形态要像人跑的，不是机器画的
+套件 com.whale.campusrun.TrackGenTest     用例 12  失败 0  错误 0  耗时 1.38s
+   [PASS] 风华运动场 各配速都精确命中（毛刺开 / 关）
+   [PASS] 所有点必须落在电子围栏内（毛刺开 / 关）
+   [PASS] 不能有任何点落在禁跑区（毛刺开 / 关）
+   [PASS] 太极运动场与宁静苑同样达标（毛刺开 / 关）
+   [PASS] 各种配速与种子下都不能越界（毛刺开 / 关）
+   [PASS] 温和起伏既要有快慢差异也要有停顿（毛刺开 / 关）
+   [PASS] 轨迹形态要像人跑的，不是机器画的（毛刺开 / 关）
+   [PASS] 路线要有毛刺和突起，不能是光滑椭圆
+   [PASS] 关闭毛刺走光滑轨迹，开启后才有突起
    [PASS] 时间轴必须逐秒递增
    [PASS] 点在多边形内的判定与射线法一致
+   [PASS] 配速窗口计算正确
+
+套件 com.whale.campusrun.AreaStoreTest    用例 13  失败 0  错误 0
+套件 com.whale.campusrun.FluidMotionTest  用例 17  失败 0  错误 0
+套件 com.whale.campusrun.LiquidSpringTest 用例  9  失败 0  错误 0
+套件 com.whale.campusrun.StatsParseTest   用例  4  失败 0  错误 0
 ```
 
-断言的三条硬指标（4'00" / 5'30" / 5'45" / 7'00" 四档）：
+断言的三条硬指标（4'00" / 5'30" / 5'45" / 7'00" 四档，毛刺开 / 关各跑一遍）：
 
 | 指标 | 要求 | 实测 |
 |---|---|---|
@@ -570,14 +582,19 @@ JSON 用系统自带的 `org.json` —— 没有 OkHttp、没有 Retrofit、没�
 另外还断言了「像人跑的」：航向取值 > 40 个不同值（矩形只有 4 个）、
 速度有波动、逐点间距有抖动、精度字段在 3~20 m。
 
+毛刺模式再加一条硬指标：2km / 5'45" 的轨迹里，跳点（> 1.5× 均步长）至少 8 个、
+最大跳距 > 5m、平均每秒转向 > 12°、大角度折返（> 45°）至少 20 次。
+开关专项测试用同一个 seed 对比：关闭时 5m+ 跳点为 0、最大步长 < 5m；
+打开后 5m+ 跳点至少 8 个，且两种模式的坐标必须不同。
+
 跑测试：
 
-```powershell
-$env:JAVA_HOME='E:\AndroidDev\jdk17'
-E:\AndroidDev\gradle-8.7\bin\gradle.bat -p . :app:testDebugUnitTest
+```bash
+cd android-app
+./gradlew :app:testDebugUnitTest
 ```
 
-报告在 `app\build\reports\tests\testDebugUnitTest\index.html`。
+报告在 `app/build/reports/tests/testDebugUnitTest/index.html`。
 
 > 之前用 Python 镜像验证过一遍（[`../refs/verify_real_areas.py`](../refs/verify_real_areas.py)），
 > 现在是**直接跑编译进 APK 的那份 Kotlin 代码**，不是镜像。

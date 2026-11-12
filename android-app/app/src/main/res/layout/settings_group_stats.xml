@@ -1,0 +1,162 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  二级页：成绩统计（时间轴）
+
+  只统计 / 只展示**有效成绩**：
+    · 顶部一张卡：有效次数 + 累计里程 + 均配 + 最快
+    · 中间是时间轴，最新的在最上面，带「最新」标记
+    · 底部「无效记录（N）」默认折叠，点开才看得到
+
+  为什么用时间轴：成绩是「一条条跑出来的」，竖线天然把它读成流水账；
+  表格反而要先读表头再对行。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/bg"
+    android:orientation="vertical">
+
+    <include layout="@layout/settings_topbar" />
+
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+    <com.whale.campusrun.RefreshScrollView
+        android:id="@+id/statsScroll"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:clipToPadding="false"
+        android:paddingBottom="24dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingTop="12dp">
+
+            <!-- 刷新 + 摘要 -->
+            <LinearLayout style="@style/SettingsGroup">
+
+                <com.whale.campusrun.SettingsRow
+                    android:id="@+id/rowRefreshStats"
+                    app:rowTitle="@string/b_refresh_stats"
+                    app:rowAccent="true"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:paddingStart="@dimen/row_padding_h"
+                    android:paddingTop="6dp"
+                    android:paddingEnd="@dimen/row_padding_h"
+                    android:paddingBottom="16dp">
+
+                    <TextView
+                        android:id="@+id/tvStatsBig"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:fontFamily="sans-serif-medium"
+                        android:text="@string/stats_hint"
+                        android:textColor="@color/fg"
+                        android:textSize="22sp" />
+
+                    <TextView
+                        android:id="@+id/tvStatsSub"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:textColor="@color/fg_dim"
+                        android:textSize="13sp" />
+
+                    <TextView
+                        android:id="@+id/tvStatsByPlace"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:textColor="@color/fg_dim"
+                        android:textSize="12sp"
+                        android:visibility="gone" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- 时间轴 -->
+            <LinearLayout
+                style="@style/SettingsGroup"
+                android:paddingStart="@dimen/row_padding_h"
+                android:paddingTop="6dp"
+                android:paddingEnd="@dimen/row_padding_h"
+                android:paddingBottom="6dp">
+
+                <LinearLayout
+                    android:id="@+id/timelineContainer"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical" />
+            </LinearLayout>
+
+            <!-- 无效记录：默认折叠 -->
+            <LinearLayout style="@style/SettingsGroup">
+
+                <com.whale.campusrun.SettingsRow
+                    android:id="@+id/rowInvalid"
+                    app:rowChevron="true"
+                    app:rowTitle="@string/stats_invalid_title"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+
+                <LinearLayout
+                    android:id="@+id/invalidContainer"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:paddingStart="@dimen/row_padding_h"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="@dimen/row_padding_h"
+                    android:paddingBottom="12dp"
+                    android:visibility="gone" />
+            </LinearLayout>
+        </LinearLayout>
+    </com.whale.campusrun.RefreshScrollView>
+
+    <!-- 气泡必须放在 ScrollView **之后**：FrameLayout 里后画的在上层，
+         放在前面会被卡片整个盖住，拖的时候看不见提示。 -->
+    <!-- 顶部 / 底部两个提示气泡：拉到一半显示「松手刷新」，刷新中显示「刷新中…」 -->
+    <TextView
+        android:id="@+id/tipTop"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|center_horizontal"
+        android:layout_marginTop="8dp"
+        android:background="@drawable/chip_bg"
+        android:paddingStart="14dp"
+        android:paddingTop="6dp"
+        android:paddingEnd="14dp"
+        android:paddingBottom="6dp"
+        android:text="@string/pull_to_refresh"
+        android:textColor="@color/fg_dim"
+        android:textSize="12sp"
+        android:visibility="gone" />
+
+    <TextView
+        android:id="@+id/tipBottom"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="10dp"
+        android:background="@drawable/chip_bg"
+        android:paddingStart="14dp"
+        android:paddingTop="6dp"
+        android:paddingEnd="14dp"
+        android:paddingBottom="6dp"
+        android:text="@string/pull_to_refresh_up"
+        android:textColor="@color/fg_dim"
+        android:textSize="12sp"
+        android:visibility="gone" />
+
+    </FrameLayout>
+</LinearLayout>

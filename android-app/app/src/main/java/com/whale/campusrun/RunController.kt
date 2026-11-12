@@ -3,7 +3,6 @@
  *   - 线程由单例持有，不挂在 Activity 上 —— Activity 被系统重建也不会打断跑步
  *   - 日志和 RunState 缓存在这里，Activity 重新附着时能完整恢复
  *   - 前台服务只需读这里就能刷新通知栏
- * 作者：蓝色大肥鱼 🐟
  */
 package com.whale.campusrun
 
@@ -96,7 +95,8 @@ object RunController {
         targetM: Double,
         noise: Double,
         seed: Int,
-        paceToleranceSec: Double = TrackGen.DEFAULT_PACE_TOLERANCE_SEC
+        paceToleranceSec: Double = TrackGen.DEFAULT_PACE_TOLERANCE_SEC,
+        burrs: Boolean = false
     ) {
         if (running) return
         running = true
@@ -123,7 +123,8 @@ object RunController {
                     realtime = true,          // 服务端按墙钟算配速，必须超实时
                     noise = noise,
                     seed = seed,
-                    paceToleranceSec = paceToleranceSec
+                    paceToleranceSec = paceToleranceSec,
+                    burrs = burrs
                 )
             } catch (t: Throwable) {
                 log("✗ 运行异常：${t.javaClass.name}: ${t.message}")

@@ -5,8 +5,7 @@
     <string name="app_title">鲸鲸约跑</string>
     <string name="app_tag" translatable="false">CAMPUS RUN</string>
     <string name="app_sub">替你跑完这两公里 · 你只管去刷脸</string>
-    <string name="app_author" translatable="false">WilliTourt的蓝色大肥鱼</string>
-    <string name="credit">由 WilliTourt的蓝色大肥鱼 🐟 编写</string>
+    <string name="app_author" translatable="false">gufandf</string>
 
     <!-- 顶栏 / 悬浮导航栏 -->
     <string name="nav_run">主页</string>
@@ -14,6 +13,33 @@
     <string name="nav_start">上手</string>
     <string name="nav_settings">设置</string>
     <string name="settings">设置</string>
+    <!-- 设置首页的分组名（二级页标题也用这几个） -->
+    <string name="g_account">账号与场地</string>
+    <string name="g_run">跑步参数</string>
+    <string name="g_stats">成绩统计</string>
+    <string name="g_live">流体云</string>
+    <string name="g_about">关于</string>
+    <string name="g_appearance">外观</string>
+    <string name="stats_latest">最新</string>
+    <string name="pull_to_refresh">下拉刷新</string>
+    <string name="pull_to_refresh_up">上拉刷新</string>
+    <string name="release_to_refresh">松手刷新</string>
+    <string name="refreshing">刷新中…</string>
+    <string name="stats_invalid_title">无效记录</string>
+    <string name="stats_valid_big">%1$d 次有效</string>
+    <string name="stats_valid_sub">%1$.1f km　·　均配 %2$s　·　最快 %3$s</string>
+    <string name="stats_empty">还没有有效成绩</string>
+    <string name="stats_empty_hint">跑完一轮、服务端判定有效后才会出现在这里</string>
+    <string name="openid_dialog_title">修改 openid</string>
+    <string name="openid_dialog_desc">用来换 token 的身份标识，28 位，o 开头。存在本机，不上传任何地方。</string>
+    <string name="openid_dialog_hint">粘贴或输入 openid</string>
+    <string name="b_paste">粘贴</string>
+    <string name="cancel">取消</string>
+    <string name="save">保存</string>
+    <string name="openid_len_warn">openid 通常是 28 位，现在是 %1$d 位</string>
+    <!-- 设置行里的纯文字标签（不带冒号，行内自成一段） -->
+    <string name="l_openid_plain">openid</string>
+    <string name="l_area_plain">场地</string>
     <string name="log_page">日志</string>
     <string name="back">返回</string>
     <string name="grp_account">账号</string>
@@ -43,6 +69,17 @@
     <string name="b_stop">结束打卡</string>
     <string name="b_clear">清空</string>
     <string name="b_share">导出</string>
+    <!-- 日志页的「更多」：分享 / 复制 / 清空都收进液体弹出菜单 -->
+    <string name="b_more">更多</string>
+    <!-- 主页进度卡：默认态 -->
+    <string name="dash_remain_idle">未开始</string>
+    <string name="dash_remain_label">剩余时间</string>
+    <string name="dash_dist_idle">0.00 / 0.00 km</string>
+    <string name="dash_pace_idle">配速 --</string>
+    <string name="dash_phase_idle">空闲</string>
+    <string name="b_share_log">导出日志</string>
+    <string name="b_copy_log">复制日志</string>
+    <string name="b_clear_log">清空显示</string>
     <string name="b_copy">复制</string>
 
     <!-- 配速抖动 -->
@@ -50,6 +87,21 @@
     <string name="pace_window">平均配速会被夹在 %1$s ~ %2$s 之间</string>
     <string name="pace_window_bad">配速或抖动格式不对</string>
     <string name="log_hint_short">日志已移到右上角【日志】页。</string>
+
+    <!-- 轨迹毛刺 -->
+    <string name="l_burrs">轨迹毛刺</string>
+    <string name="burrs_hint">开启后加入毛刺 / 突起，更像真人跑出来的；默认关闭为光滑轨迹。</string>
+
+    <!-- 流体云 / 实时活动 -->
+    <string name="live_checking">正在检查流体云状态…</string>
+    <string name="live_ok">✓ 流体云可用\n打卡时进度会收成状态栏胶囊，展开是实时活动。锁屏、切应用都不影响。</string>
+    <string name="live_off_old">当前系统版本不支持实时活动胶囊\n（需要 Android 16 / ColorOS 16 及以上）。打卡照常进行，只是没有胶囊。</string>
+    <string name="live_off_denied">系统没放行实时通知\n机型/系统版本可能不支持，或「实时通知」开关被关掉了。去 设置 → 通知 → 鲸鲸约跑 看看有没有实时通知选项；没有就是这台机器还不支持。打卡本身不受影响。</string>
+    <string name="live_off_noperm">没给通知权限，胶囊发不出来\n去 设置 → 通知 → 鲸鲸约跑 打开「允许通知」。</string>
+    <string name="live_hint">流体云走的是 Android 16 原生 Live Updates 规范，ColorOS 16 完整兼容。不需要额外授权，也不需要装别的 App。</string>
+    <string name="live_preview">发一条测试胶囊</string>
+    <string name="live_preview_sent">已发出，8 秒后自动消失</string>
+    <string name="live_preview_fail">发不出去，先检查通知权限</string>
 
     <!-- 仪表盘 -->
     <string name="dash_progress">进度</string>
@@ -85,8 +137,11 @@
 
     <!-- 说明信息 -->
     <string name="about_title">说明</string>
-    <string name="about_body">安卓单机版打卡工具。不申请定位权限、不连第三方服务器、不需要登录。\n\n● 原理：逆向发现小程序是纯客户端信任架构 —— 轨迹点由客户端直接 POST，服务端不回采、无签名、无加密。所以本工具直接在本地构造 HTTP 请求，完全不需要碰手机定位。\n● 隐私：openid 只存在本机，不会上传到任何地方。\n● 人脸：服务端会做人脸判定，而人脸比对在操场的物理摄像头上完成，小程序根本不调相机 —— 这一关只能靠你本人到场，工具绕不过去。\n● 轨迹：配速取规则区间中段，所有点都验证落在场地围栏内并绕开禁跑区，叠了模拟真实 GPS 的低频漂移噪声。\n\n本项目仅供个人学习与安全研究。使用者需自行承担一切后果。</string>
-    <string name="repo_link">开源仓库（点一下在浏览器里打开）：\nhttps://github.com/WilliTourt/CQUPT-MockRunning</string>
+    <string name="about_body">安卓单机版打卡工具。不申请定位权限、不连第三方服务器、不需要登录。\n\n● 隐私：openid 只存在本机，不会上传到任何地方。\n● 轨迹：所有点都验证落在场地围栏内并绕开禁跑区。「轨迹毛刺」开关默认关闭，打开后轨迹看起来更像真人跑出来的。\n● 提醒：开始打卡之前人要先到操场，人脸这一关只能靠本人到场。\n\n本项目仅供个人学习与安全研究，使用者需自行承担一切后果。</string>
+    <string name="repo_link">本项目的开源仓库（点一下在浏览器里打开）：\nhttps://github.com/gufandf/CQUPT-MockRunning</string>
+    <string name="repo_link_origin">原仓库：\nhttps://github.com/WilliTourt/CQUPT-MockRunning</string>
+    <string name="repo_this_summary">github.com/gufandf/CQUPT-MockRunning</string>
+    <string name="repo_origin_summary">github.com/WilliTourt/CQUPT-MockRunning · 本项目由它而来</string>
     <string name="b_copy_repo">复制仓库地址</string>
     <string name="repo_copied">仓库地址已复制</string>
     <string name="repo_open_failed">没有可用的浏览器，地址已复制到剪贴板</string>

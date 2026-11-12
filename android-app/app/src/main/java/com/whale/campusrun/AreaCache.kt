@@ -7,8 +7,6 @@
  *
  * 为什么不用文件：一个场地的多边形就几百个点，几 KB 而已，SharedPreferences 读写更省事；
  * 也不引 Gson —— org.json 是系统自带的，符合「零第三方依赖」。
- *
- * 作者：WilliTourt的蓝色大肥鱼 🐟
  */
 package com.whale.campusrun
 

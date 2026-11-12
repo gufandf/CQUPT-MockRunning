@@ -9,7 +9,7 @@
   <img src="docs/img/icon.png" width="200" alt="鲸鲸约跑">
 </p>
 
-**当前版本 v1.11.0** · [**下载 APK**](https://github.com/WilliTourt/CQUPT-MockRunning/releases/latest) · [变更记录](CHANGELOG.md) · [技术细节](#六技术细节) · [文件说明](#七文件说明)
+**当前版本 vG1.11.1** · [**下载 APK**](https://github.com/gufandf/CQUPT-MockRunning/releases/latest) · [变更记录](CHANGELOG.md) · [文件说明](#六文件说明)
 
 ---
 
@@ -20,10 +20,18 @@
 | | |
 |---|---|
 | **主页** | 地图（绿色边界、暗红禁跑区、红色实时轨迹）+ 底部固定的【开始打卡】 |
-| **设置**（右上角齿轮） | 账号：openid / 连接 / 场地<br>跑步：配速 / 距离 / 配速抖动<br>统计：有效·无效次数、累计里程、平均配速、分场地、最近记录<br>教程：使用步骤 + 取码脚本<br>外观：主题<br>关于：原理 / 开源仓库 / 署名 |
+| **设置**（右上角齿轮） | 账号：openid / 连接 / 场地<br>跑步：配速 / 距离 / 配速抖动 / 轨迹毛刺开关<br>统计：有效·无效次数、累计里程、平均配速、分场地、最近记录<br>教程：使用步骤 + 取码脚本<br>流体云：胶囊状态 + 发一条测试胶囊<br>外观：主题<br>关于：版本 / 本项目仓库 / 原仓库 |
 
 运行日志是独立的一页，从顶栏右上角的小图标进入。设置页走标准 Activity 转场，
 所以侧滑返回是系统原生的跟手动画。
+
+界面是流体设计那一套：**纯色底**、24dp 圆角玻璃卡片、胶囊按钮。设置页是「分组卡片 + 行」的结构，
+一行一件事，和 ColorOS 设置页一致。
+**按钮是按下去会变形的**：按住拖动，它会沿手指方向鼓起来、横向收窄（面积守恒），
+松手荡一下再收住；「场地」这类选项则从字段处沿一条弧线飞出来的弹出菜单里选。
+深色跟着系统走：
+
+<img src="docs/img/09-dark.png" width="320">
 
 跑起来是这样：
 
@@ -56,10 +64,10 @@ openid 是你在小程序里的身份编号。**换登录凭证只需要这一�
   [1] openid
       oXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
-把这个 openid 填进 App 的【打卡】页即可
+把这个 openid 填进 App 设置页的 openid 输入框即可
 ```
 
-> **懒得传文件？** App 的【取码】页里有同一份脚本，
+> **懒得传文件？** App 设置页的【使用教程】分段里有同一份脚本，
 > 点「分享脚本」可以直接当 `.py` 文件发到微信文件传输助手，电脑上双击就能跑。
 >
 > **不用退出微信。** 读的是 HTTP 缓存不是数据库文件，微信开着也能读。
@@ -82,7 +90,12 @@ openid 是你在小程序里的身份编号。**换登录凭证只需要这一�
 
 ### 第 3 步：填参数开跑
 
-<img src="docs/img/01-run.png" width="320">
+参数都在右上角【设置】里（主页只留地图和【开始打卡】）：
+
+<p>
+<img src="docs/img/04-settings.png" width="240">
+<img src="docs/img/08-settings-run.png" width="240">
+</p>
 
 | 填什么 | 填多少 |
 |---|---|
@@ -95,6 +108,15 @@ openid 是你在小程序里的身份编号。**换登录凭证只需要这一�
 > 点【连接并拉取场地】如果连不上服务器，会直接弹一个「无法连接到服务器」的提示框，
 > 告诉你去检查网络，而不是默默留一个空场地列表。
 
+回到主页长这样 —— 纯色底、24dp 圆角的玻璃卡片、一颗胶囊形的【开始打卡】：
+
+<img src="docs/img/01-run.png" width="320">
+
+点【开始打卡】后，地图上会出现一个 **3 秒倒计时**（环 + 秒数）。
+它既是「马上要开跑了」的确认，也是一个**反悔窗口** —— 倒计时没走完时再点一次按钮就取消：
+
+<img src="docs/img/11-countdown.png" width="320">
+
 然后——
 
 > **点「开始」之前，人先进操场。**
@@ -103,8 +125,17 @@ openid 是你在小程序里的身份编号。**换登录凭证只需要这一�
 自动打卡过程中：
 
 - 可以退出 App、锁屏、切到别的应用 —— **进度不会丢**（前台服务守着）
-- 通知栏有实时进度，下拉就能看
+- **流体云胶囊**：进度收进状态栏胶囊，展开是实时活动（ColorOS 16 / Android 16 起）
 - **别在后台划掉它**（从最近任务里划走会终止）
+
+流体云不需要额外授权，也不需要装别的 App —— ColorOS 16 的流体云完整接入了
+Android 16 原生的 Live Updates 规范。设置页里能看到当前状态，还能发一条测试胶囊：
+
+<img src="docs/img/08-fluid.png" width="320">
+
+胶囊/实时活动长这样（四段分色的进度条 + 三个里程碑点）：
+
+<img src="docs/img/10-capsule.png" width="320">
 
 回到 App 会看到实时仪表盘：
 
@@ -122,7 +153,7 @@ openid 是你在小程序里的身份编号。**换登录凭证只需要这一�
 
 ### 第 4 步：看结果
 
-跑完切到底部【统计】页，点「刷新」：
+跑完进【设置】→【成绩统计】，点「刷新」：
 
 <img src="docs/img/02-stats.png" width="320">
 
@@ -132,8 +163,7 @@ openid 是你在小程序里的身份编号。**换登录凭证只需要这一�
 > 1. **配速 / 里程** —— 工具保证达标
 > 2. **人脸检测** —— `锻炼时间内无跑步检测` / `跑步检测过少`
 >
-> 第 2 条**只能靠你本人到场**。小程序里根本不调相机，人脸比对是在操场摄像头里做的。
-> 这一点无解，工具也绕不过去。
+> 第 2 条**只能靠你本人到场**。这一点无解，工具也绕不过去。
 
 ---
 
@@ -176,32 +206,6 @@ openid 是你在小程序里的身份编号。**换登录凭证只需要这一�
 规则要求 2000 米，跑满 2 公里就够。设更长没有意义，设更短不达标。
 </details>
 
-<details>
-<summary><b>为什么不用模拟定位 / 改手机 GPS？</b></summary>
-
-**因为根本不需要。** 逆向之后发现小程序是纯客户端信任架构 ——
-它自己把轨迹点收集起来直接 POST，服务端不回采、无法验证真伪，
-连 `isValid` 都是客户端 JS 算的。
-
-所以直接在 App 里构造 HTTP 请求就行，**完全不用碰手机定位**。
-（最开始的 iOS / Android 定位注入方案因此全部作废，代码留在
-[`android/`](android/) [`ios/`](ios/) 里当参考。）
-</details>
-
-<details>
-<summary><b>会不会被发现？</b></summary>
-
-服务端能看到的只有你 POST 上来的点和时间戳。工具做了这些：
-
-- 配速取区间中段，不贴边
-- 每个点都验证在场地多边形内（100%）
-- 轨迹绕开禁跑区（`jpq`）
-- 加了模拟真实 GPS 的低频漂移噪声，不是完美折线
-- 时间戳连续递增，上传节拍和真实耗时对齐
-
-但说实话：**人脸那关没过去，一切都白搭。**
-</details>
-
 ---
 
 ## 四、你需要准备什么
@@ -228,150 +232,60 @@ cd android-app
 
 ---
 
-## 六、技术细节
-
-<details>
-<summary><b>点开看完整链路（含接口、算法、实测结论）</b></summary>
-
-### 结论：纯客户端信任架构
-
-| 你以为的 | 实际的 |
-|---|---|
-| 小程序采集真实 GPS，服务端校验 | 收集起来直接 POST，**服务端不回采** |
-| 有请求签名 / 加密，要逆向算法 | **完全没有签名**，明文 JSON |
-| 轨迹有效性服务端判定 | `isValid` / 区域判定 / 补点 **全是客户端 JS 算的** |
-
-而且 token 只要一个 openid 就能换，`wxCode` 传空串就行：
-
-```js
-// 反编译出来的 token 刷新分支
-var openid = wx.getStorageSync("openid");
-return openid != null && openid !== ""
-  ? (res, rej) => doCheckBinding(res, rej, "")      // ← wxCode 传空
-  : (res, rej) => wx.login({ success: r => doCheckBinding(res, rej, r.code) });
-```
-
-### 请求流程
-
-```
-① openid
-     ↓
-② GET  /new_wxapp/wxUnifyId/checkBinding?wxCode=&openid=<OPENID>&phoneType=PC_Windows
-     ← { isBind:"true", token:"..." }
-     ↓
-③ GET  /new_wxapp/setting/getRule                     → maxPace / minPace
-   GET  /new_wxapp/place/getPlayground                → 可跑步场地列表
-   GET  /new_wxapp/area/getAllArea                    → 区域多边形 + placeCode
-   GET  /new_wxapp/areaFunc/getFunc                   → 区域功能字典
-     ↓
-④ POST /new_wxapp/sportRecord/sport/start2            → sportRecordNo
-     ↓
-⑤ POST /new_wxapp/sportRecord/point/saveListByNo      ×N
-     每批 8 点，并把上一批的末点作为下一批的首点
-     ↓
-⑥ POST /new_wxapp/sportRecord/sport/end/<sportRecordNo>
-```
-
-全部请求 `header: { token }`，**没有任何签名**。
-
-### 几个实测踩明白的点
-
-| 发现 | 说明 |
-|---|---|
-| `jpq` 不是人脸区 | 一开始以为是「人脸区」，实测 `/areaFunc/getFunc` 给出字典后确认是**禁跑区**。里面的点 `isValid="2"`，`calcDistance` 返回 0，**不计入里程** |
-| 图片上传接口是摆设 | `/sportRecord/mobile/uploadImg` 是用来传人脸图的，但小程序**从来不调**。人脸比对在物理摄像头上做 |
-| 服务端复用未结束的记录 | `start2` 会把上次没 `end` 的记录原样还回来，导致进 App 就看到旧进度 |
-| 服务端按点的 `collectTime` 算时长 | 中途实测：183 个点 → 服务端报 `timeConsuming = 182`，正好是 `collectTime` 跨度。所以**上传节拍必须和真实时间对齐**，一把梭全发会被判无效 |
-| 有测试残留场地 | `placeCode` 为 `00001 上海成` / `00002 石桥铺` 的是开发测试数据，要过滤掉 |
-
-### 轨迹算法
-
-[`track_engine.py`](track_engine.py) / `TrackGen.kt` 按配速生成「像人跑出来的」轨迹：
-
-- **配速标定**：采样点数由「配速 × 距离」锁死，再二分反解地面速度，
-  保证输出轨迹的**实测配速等于目标配速**（否则噪声会把距离撑长 15%）
-- **配速温和起伏**（v1.9.0）：把匀速拆成有快有慢 —— 疲劳（整场）+ 地形（分钟级）
-  + 步频（十几秒级）三种时间尺度叠加，并叠入约 7% 时长的短暂停顿，
-  权重归一化到均值 1。**不改变总时长和总里程**，因此不影响达标
-- **平均配速钳制**（v1.9.0）：生成后校验实测平均配速是否在「目标 ± 容差」内，
-  越界就微调采样点数重算，保证不飘出达标区间
-- **汇报字段反推**（v1.9.0）：`speed` / `bearing` 由最终坐标反算，和轨迹严格自洽
-- **路线有机化**：矩形折线 → 低频正弦扰动 + 循环滑动平均磨圆直角，航向连续变化
-- **GPS 噪声**：AR(1) 相关噪声，模拟真实低频漂移
-- **坐标系**：内置 WGS84 ↔ GCJ02 双向转换（小程序用 GCJ02，**必须转**）
-- **围栏内缩 + 越界钳制**：多边形朝质心内缩 + 有机化，个别被噪声顶出边界的点
-  再由 `clampToFence()` 拉回来，保证 100% 在围栏内且绕开禁跑区
-
-实跑验证：
-
-```
-配速 3:30  实测 3'29"      配速 10:00 实测 9'59"
-配速 5:30  实测 5'29"      配速 14:00 实测 13'59"
-配速 7:45  实测 7'44"
-```
-
-配速起伏实测（风华运动场 2000m，15 秒滚动窗口）：分段配速约 **4'10" ~ 7'59"**，
-2 公里约 2~3 次短暂停顿。总时长和总里程与匀速完全一致 —— 形态只决定速度怎么分配。
-
-离线验证脚本：[`refs/verify_pace_profile.py`](refs/verify_pace_profile.py)（288 组合压测）。
-
-### 跑步规则（实测）
-
-```
-raceMile = 2000.0 m    minPace = 4.0    maxPace = 7.5
-```
-
-三个可跑场地：
-
-| placeCode | 场地 | 围栏 |
-|---|---|---|
-| T1001 | 风华运动场 | 20 顶点 / 周长 564m / 1 处禁跑区 |
-| T1005 | 太极运动场 | 5 顶点 / 周长 770m / 1 处禁跑区 |
-| T1014 | 宁静苑 | 6 顶点 / 周长 554m / 无禁跑区 |
-
-**完整逆向报告见 [`refs/FINDINGS.md`](refs/FINDINGS.md)**
-（含 V1MMWX 包体解密、20+ 接口全表、实测结果与日志）。
-
-</details>
-
----
-
-## 七、文件说明
+## 六、文件说明
 
 | 文件 | 作用 |
 |---|---|
 | [`android-app/`](android-app/) | 📱 **成品 App** —— 源码 + 构建说明 |
 | [`get_openid.py`](get_openid.py) | 本地提取 openid（零解密、不联网） |
 | [`wecat_run.py`](wecat_run.py) | 命令行版客户端（电脑上跑，不用装 App） |
+| [`draw_text.py`](draw_text.py) | **写字版**：在场地里顺时针写下「重庆邮电大学」，手写效果 |
 | [`track_engine.py`](track_engine.py) | 轨迹引擎 Python 参考实现 |
 | [`CHANGELOG.md`](CHANGELOG.md) | 版本变更记录 |
 | [`refs/FINDINGS.md`](refs/FINDINGS.md) | 完整逆向报告 |
-| [`refs/verify_pace_profile.py`](refs/verify_pace_profile.py) | 配速形态离线验证（288 组合压测） |
+| [`refs/verify_pace_profile.py`](refs/verify_pace_profile.py) | 配速形态离线验证（3 场地 × 4 配速 × 3 seed × 毛刺开/关） |
 | [`refs/wxapkg_unpack.py`](refs/wxapkg_unpack.py) | V1MMWX 包体解密 + 解包（纯 Python AES） |
 | [`refs/clear_stale.py`](refs/clear_stale.py) | 清理服务端挂着的未结束记录 |
+| [`refs/fetch_tracks.py`](refs/fetch_tracks.py) | 拉历史记录 + 轨迹点，导出 GeoJSON / CSV |
+| [`refs/plot_tracks.py`](refs/plot_tracks.py) | 把拉下来的历史轨迹叠成图 |
 | [`android/`](android/) · [`ios/`](ios/) · [`api/`](api/) | 早期作废的定位注入方案，留作参考 |
 
 ### 界面结构
 
-底部一条悬浮切换栏，四页。切页只改 `visibility` —— 不重建 Activity，
-所以各页的滚动位置、正在跑的打卡都不受影响。
+两个页面，各只干一件事（G1.11.1 起）。页面之间走标准 Activity 转场，
+侧滑返回、预测式返回都是系统给的原生跟手动画 —— 不引 Fragment、不引导航库。
 
 ```
-主页                        统计
-├── 跑步区域                └── 成绩汇总 / 分场地 / 最近记录
-├── 配速 / 距离
-├── 配速抖动                 上手
-├── 电池白名单提示           ├── 使用教程
-├── 开始 / 结束打卡          ├── openid 输入 + 连接并拉取场地
-└── 实时仪表盘              └── 取码（openid 说明 + 提取脚本）
-（顶栏右上角小图标进【日志】页）
-
-                            设置
-                            ├── 主题（跟随系统 / 深色 / 浅色）
-                            ├── 说明信息
-                            ├── 开源仓库
-                            └── 署名
+主页 MainActivity                    设置 SettingsActivity
+├── 顶栏（标题 + 日志 + 设置）        ├── 账号：openid / 连接 / 场地
+├── 地图（边界 / 禁跑区 / 轨迹）      ├── 跑步：配速 / 距离 / 配速抖动
+├── 电池白名单提示                    ├── 统计：汇总 / 分场地 / 最近记录
+├── 仪表盘摘要                        ├── 教程：使用步骤 + 取码脚本
+└── 底部固定【开始打卡】              ├── 流体云：胶囊状态 + 测试胶囊
+                                      ├── 外观：主题（跟随系统 / 深色 / 浅色）
+运行日志是独立一页 LogActivity        └── 关于：版本 / 仓库
 ```
+
+主页**不塞表单**：场地 / 配速 / 距离 / 抖动都归设置页。
+
+### 流体云怎么接的
+
+不接 OPPO 私有 SDK，走的是 Android 16 的公开 API（ColorOS 16 的流体云完整兼容这套）：
+
+| 条件 | 实现 |
+|---|---|
+| 有标题 | `setContentTitle(...)` |
+| 常驻 | `setOngoing(true)` |
+| 合法样式 | `NotificationCompat.ProgressStyle`（四段 + 三个里程碑点） |
+| 申请提升 | `setRequestPromotedOngoing(true)` |
+| 清单声明 | `POST_PROMOTED_NOTIFICATIONS` |
+| 胶囊短文案 | `setShortCriticalText("1.24 / 2.00 km")` |
+
+反面约束同样要守：不能是分组摘要、不能 `setColorized`、不能用自定义 `RemoteViews`、
+通道重要性不能是 `IMPORTANCE_MIN`。踩中任一条就退回普通通知。
+
+因此 `compileSdk` 提到 **36**（这套 API 到 Android 16 才有），`targetSdk` 仍是 34。
+系统不支持时 `ProgressStyle` 会退化成普通进度条 —— 仍然是同一份数据，只是没有胶囊。
 
 ### 命令行版（不想装 App 的话）
 
@@ -389,6 +303,52 @@ python wecat_run.py run --openid <OPENID> --place 0 --pace 5:45 --dist 2.0 \
        --validate-region --realtime --live
 ```
 
+### 写字版（轨迹是一行字，不是绕圈）
+
+[`draw_text.py`](draw_text.py) 把 2 公里花在「写字」上：在所选场地里顺时针写下
+**重庆邮电大学** 六个字，字压在跑道带上、朝围栏外侧长，笔画带手写抖动。
+
+```bash
+# 交互：问 openid、列出场地让你选
+python draw_text.py
+
+# 指定场地直接跑
+python draw_text.py --openid <OPENID> --place 太极运动场
+
+# 不联网，只看排版和预览图
+python draw_text.py --offline --poly feng --png run/plan.png
+```
+
+| 参数 | 说明 |
+|---|---|
+| `--place` | 场地序号 / `placeCode` / 名字片段（`T1005`、`太极` 都行） |
+| `--pace` | 配速，默认 `6:30`（写字要拐弯，取规则窗口偏慢一端） |
+| `--dist` | 目标里程 km，默认 `2.0` |
+| `--text` | 换一行字，字模内置 `重庆邮电大学`（`GLYPHS` 里加字即可） |
+| `--orient` | `up` 字一律朝北正立（默认）；`path` 跟着环线转、基线贴环线 |
+| `--png` | 输出俯视预览图，先看一眼再决定要不要跑 |
+| `--offline --poly` | 不联网，用内置真实多边形排版（`feng` / `tai` / `ning`） |
+
+几个设计点：
+
+- **字模是「骨架」不是字体轮廓**：GPS 只能画一条线，轮廓字会变成双线描边，
+  20 米字高直接糊成一团。六个字各手写成 7~8 笔单线，笔顺照真实笔顺。
+- **环线按径向剖面取**：围栏等比缩放会把环线塞进禁跑区（风华运动场南北方向更「顶」），
+  所以量出每个方向上「禁跑区边界 / 围栏边界」，在两者之间插值。
+- **时间花在笔画上**：笔画固定 0.9 米/点（1 秒一个点，稀了拐角就被削平），
+  剩下的秒数全给「抬笔沿环线跑」那段 —— 它压在已有线条上，跑多快都不多出笔画。
+  总位移最后整体缩放对齐，配速不漂。
+- **圈数尽量少**：一圈字迹约 1 公里，差的那段沿环线跑掉，不重复描同一行字。
+
+---
+
+## 仓库
+
+本项目：<https://github.com/gufandf/CQUPT-MockRunning>
+原仓库：<https://github.com/WilliTourt/CQUPT-MockRunning>（本项目由它而来）
+
+App 里【设置 → 关于】能直接打开或复制本项目仓库地址。
+
 ---
 
 ## 许可
@@ -397,8 +357,5 @@ python wecat_run.py run --openid <OPENID> --place 0 --pace 5:45 --dist 2.0 \
 
 > 本项目仅供个人学习与安全研究。逆向、接口调用、自动打卡均由使用者自行发起，
 > 使用者需自行承担一切后果（包括但不限于账号处罚、成绩判定、校纪校规处理）。
-> 作者不对任何使用后果负责。
+> 本项目不对任何使用后果负责。
 
----
-
-> 作者：**WilliTourt的蓝色大肥鱼 🐟**

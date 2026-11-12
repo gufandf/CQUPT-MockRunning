@@ -13,23 +13,23 @@
     <!-- ═══════════ 固定顶栏 ═══════════ -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="56dp"
-        android:background="@color/box"
+        android:layout_height="wrap_content"
         android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:paddingStart="4dp"
-        android:paddingEnd="12dp">
+        android:paddingStart="8dp"
+        android:paddingTop="8dp"
+        android:paddingEnd="16dp"
+        android:paddingBottom="6dp">
 
-        <ImageButton
+        <com.whale.campusrun.LiquidButton
+            app:liquidTone="ghost"
+            app:liquidIcon="@drawable/ic_back"
+            app:liquidIconTint="@color/fg"
+            app:liquidRoom="6dp"
             android:id="@+id/btnBack"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:background="?android:attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@string/back"
-            android:padding="12dp"
-            android:scaleType="fitCenter"
-            app:tint="@color/fg"
-            android:src="@drawable/ic_back" />
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:contentDescription="@string/back" />
 
         <TextView
             android:layout_width="0dp"
@@ -41,14 +41,16 @@
             android:textSize="20sp"
             android:textStyle="bold" />
 
-        <Button
-            android:id="@+id/btnShare"
+        <!-- 分享 / 复制 / 清空收进液体弹出菜单：
+             三个平铺按钮占掉一整行，而这些都是低频动作。 -->
+        <com.whale.campusrun.LiquidButton
+            app:liquidTone="ghost"
+            android:id="@+id/btnMore"
             android:layout_width="wrap_content"
-            android:layout_height="36dp"
-            android:background="@drawable/btn_ghost"
+            android:layout_height="68dp"
+            android:gravity="center"
             android:minWidth="72dp"
-            android:text="@string/b_share"
-            android:textAllCaps="false"
+            android:text="@string/b_more"
             android:textColor="@color/accent"
             android:textSize="14sp" />
     </LinearLayout>
@@ -81,34 +83,5 @@
                 android:textSize="13sp" />
         </ScrollView>
 
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:orientation="horizontal">
-
-            <Button
-                android:id="@+id/btnClear"
-                android:layout_width="0dp"
-                android:layout_height="42dp"
-                android:layout_marginEnd="8dp"
-                android:layout_weight="1"
-                android:background="@drawable/btn_ghost"
-                android:text="@string/b_clear"
-                android:textAllCaps="false"
-                android:textColor="@color/fg_dim"
-                android:textSize="15sp" />
-
-            <Button
-                android:id="@+id/btnCopy"
-                android:layout_width="0dp"
-                android:layout_height="42dp"
-                android:layout_weight="1"
-                android:background="@drawable/btn_ghost"
-                android:text="@string/b_copy"
-                android:textAllCaps="false"
-                android:textColor="@color/fg_dim"
-                android:textSize="15sp" />
-        </LinearLayout>
     </LinearLayout>
 </LinearLayout>

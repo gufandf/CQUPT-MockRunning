@@ -1,0 +1,142 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  修改 openid 的对话框。
+
+  参照 ColorOS「更改手机名称」：标题 + 一行说明 + 行内输入（右侧字符计数 + 清除）
+  + 下划线 + 两个大圆角按钮。openid 是 28 位固定长度，所以计数写 28 而不是 32。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="@drawable/card_group"
+    android:orientation="vertical"
+    android:paddingStart="24dp"
+    android:paddingTop="22dp"
+    android:paddingEnd="24dp"
+    android:paddingBottom="20dp">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:text="@string/openid_dialog_title"
+        android:textColor="@color/fg"
+        android:textSize="20sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:lineSpacingExtra="3dp"
+        android:text="@string/openid_dialog_desc"
+        android:textColor="@color/fg_dim"
+        android:textSize="13sp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="18dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <EditText
+            android:id="@+id/etOpenidInput"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:background="@null"
+            android:hint="@string/openid_dialog_hint"
+            android:inputType="textNoSuggestions"
+            android:maxLength="28"
+            android:maxLines="1"
+            android:paddingTop="8dp"
+            android:paddingBottom="10dp"
+            android:textColor="@color/fg"
+            android:textColorHint="@color/fg_dim"
+            android:textSize="17sp" />
+
+        <TextView
+            android:id="@+id/tvOpenidCount"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:textColor="@color/fg_dim"
+            android:textSize="12sp" />
+
+        <TextView
+            android:id="@+id/btnOpenidClear"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/b_clear"
+            android:padding="6dp"
+            android:text="✕"
+            android:textColor="@color/fg_dim"
+            android:textSize="16sp" />
+
+        <TextView
+            android:id="@+id/btnOpenidPaste"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="4dp"
+            android:background="@drawable/chip_bg"
+            android:paddingStart="12dp"
+            android:paddingTop="6dp"
+            android:paddingEnd="12dp"
+            android:paddingBottom="6dp"
+            android:text="@string/b_paste"
+            android:textColor="@color/accent"
+            android:textSize="13sp" />
+    </LinearLayout>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="2dp"
+        android:layout_marginTop="2dp"
+        android:background="@color/accent" />
+
+    <TextView
+        android:id="@+id/tvOpenidWarn"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:textColor="@color/danger"
+        android:textSize="12sp"
+        android:visibility="gone" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="22dp"
+        android:orientation="horizontal">
+
+        <com.whale.campusrun.LiquidButton
+            app:liquidTone="muted"
+            android:id="@+id/btnOpenidCancel"
+            android:layout_width="0dp"
+            android:layout_height="76dp"
+            android:layout_marginEnd="10dp"
+            android:layout_weight="1"
+            app:liquidRoom="8dp"
+            android:gravity="center"
+            android:text="@string/cancel"
+            android:textColor="@color/fg"
+            android:textSize="16sp" />
+
+        <com.whale.campusrun.LiquidButton
+            app:liquidTone="accent"
+            android:id="@+id/btnOpenidSave"
+            android:layout_width="0dp"
+            android:layout_height="76dp"
+            android:layout_weight="1"
+            app:liquidRoom="8dp"
+            android:gravity="center"
+            android:text="@string/save"
+            android:textColor="@color/on_accent"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+</LinearLayout>

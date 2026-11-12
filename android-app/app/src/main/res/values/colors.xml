@@ -1,13 +1,31 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 浅色主题（默认）。深色在 values-night/colors.xml -->
 <resources>
+    <!-- ── 底色：纯色 ──
+         windowBackground 和页面根布局都用 @color/bg。
+         bg_deep 只剩导航栏在用（系统栏取一个比页面略深的色，和内容区分开）。 -->
     <color name="bg">#F2F5FA</color>
+    <color name="bg_deep">#E2EAF7</color>
+
     <color name="fg">#16202F</color>
     <color name="fg_dim">#68788E</color>
+
+    <!-- accent 与 accent_deep 组成胶囊/主按钮的渐变；accent_soft 是光晕。 -->
     <color name="accent">#2F7FE0</color>
+    <color name="accent_deep">#1D6BD0</color>
+    <color name="accent_soft">#332F7FE0</color>
     <color name="on_accent">#FFFFFF</color>
+
+    <!-- ── 玻璃卡片 ──
+         glass 是卡片本体（半透明，底下的纯色能透上来），
+         glass_stroke 是外描边，glass_highlight 是顶部那道高光。 -->
     <color name="box">#FFFFFF</color>
+    <color name="glass">#D9FFFFFF</color>
+    <color name="glass_stroke">#80FFFFFF</color>
+    <color name="glass_highlight">#CCFFFFFF</color>
     <color name="box_stroke">#D9E2EF</color>
+    <color name="field_bg">#0D16202F</color>
+
     <color name="log">#41536B</color>
     <color name="ok">#0E8F55</color>
     <color name="ok_bg">#E4F6EC</color>
@@ -17,7 +35,21 @@
     <color name="danger_box_bg">#FCEBEB</color>
     <color name="danger_stroke">#F0AEAE</color>
     <color name="nav_bg">#D9FFFFFF</color>
-    
+
+    <!-- 弹出菜单面板：做不了背景模糊（minSdk 24），就把玻璃做"厚"一点。
+         菜单是浮在内容之上的**阅读层**，透过去看见底下的日志字就废了。 -->
+    <color name="row_divider">#1416202F</color>
+    <color name="menu_panel">#FDFFFFFF</color>
+    <color name="menu_shadow">#33000000</color>
+
+    <!-- 流体云 / 实时活动的进度条配色 -->
+    <color name="live_track">#2F7FE0</color>
+    <color name="live_segment">#8FC0F5</color>
+
+    <!-- 倒计时遮罩：两层都用**深色压暗**，不用 fg（fg 在深色下是浅色，
+         拿它压暗会把深色底刷成灰白，看起来像弹了个对话框） -->
+    <color name="scrim">#8C0B1220</color>
+
     <!-- 地图颜色 -->
     <color name="map_bg">#1A2F7FE0</color>
     <color name="map_boundary">#0E8F55</color>

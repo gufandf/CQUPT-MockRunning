@@ -1,6 +1,5 @@
 /*
  * 重邮智慧体育 API 客户端（协议逆向自小程序 wx13b7520eb7351f4f）
- * 作者：蓝色大肥鱼 🐟
  */
 package com.whale.campusrun
 

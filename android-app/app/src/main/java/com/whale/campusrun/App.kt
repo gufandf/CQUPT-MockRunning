@@ -7,8 +7,6 @@
  *   用户看到的就是「先闪一下白，再变黑」。
  *
  *   放在这里的话，theme 在 Activity 创建之前就已经是深色，一次到位，没有重建。
- *
- * 作者：WilliTourt的蓝色大肥鱼 🐟
  */
 package com.whale.campusrun
 

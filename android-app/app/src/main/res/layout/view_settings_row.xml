@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  一行设置项的骨架（<merge> 由 SettingsRow 自己 inflate）。
+
+  左边：标题（可带一行灰色描述）
+  右边：当前取值 + 箭头
+  底部：一条左右缩进的分割线（整组最后一行可以去掉）
+
+  和旧版最大的区别是「一行一件事」：以前每个设置项都是
+  「小标签 + 大输入框 + 说明」竖着堆，一屏放不下三行；
+  现在是设置页常见的一行一项，扫读快得多。
+-->
+<merge xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    tools:ignore="MergeRootFrame">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:minHeight="@dimen/row_min_height"
+        android:orientation="horizontal"
+        android:paddingStart="@dimen/row_padding_h"
+        android:paddingTop="14dp"
+        android:paddingEnd="@dimen/row_padding_h"
+        android:paddingBottom="14dp">
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/rowTitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:fontFamily="sans-serif-medium"
+                android:textColor="@color/fg"
+                android:textSize="17sp" />
+
+            <TextView
+                android:id="@+id/rowSummary"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:lineSpacingExtra="2dp"
+                android:textColor="@color/fg_dim"
+                android:textSize="13sp"
+                android:visibility="gone" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/rowValue"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="12dp"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:maxWidth="@dimen/row_value_max_width"
+            android:textColor="@color/fg_dim"
+            android:textSize="15sp"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/rowChevron"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="6dp"
+            android:text="›"
+            android:textColor="@color/fg_dim"
+            android:textSize="18sp"
+            android:visibility="gone" />
+    </LinearLayout>
+
+    <View
+        android:id="@+id/rowDividerLine"
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:layout_marginStart="@dimen/row_padding_h"
+        android:background="@color/row_divider" />
+</merge>

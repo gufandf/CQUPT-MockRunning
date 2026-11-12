@@ -1,0 +1,217 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  二级页：跑步参数。
+
+  参照 ColorOS「新建闹钟」：参数不是输入框，是**鼓轮**（中间行高亮 + 上下淡出），
+  鼓轮下面一排胶囊 chip 做快捷值。三项参数各一张卡片，页面纵向滚动。
+
+  为什么不做成「点行弹鼓轮」：这三个数是最常改的，常驻鼓轮少一次点击；
+  一屏放不下就让它滚，比每次多两步点击好。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/bg"
+    android:orientation="vertical">
+
+    <include layout="@layout/settings_topbar" />
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:clipToPadding="false"
+        android:paddingBottom="24dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingTop="12dp">
+            <LinearLayout
+                style="@style/SettingsGroup"
+                android:layout_marginBottom="12dp"
+                android:paddingStart="@dimen/row_padding_h"
+                android:paddingTop="14dp"
+                android:paddingEnd="@dimen/row_padding_h"
+                android:paddingBottom="12dp">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:fontFamily="sans-serif-medium"
+                    android:text="配速（分 : 秒 / 公里）"
+                    android:textColor="@color/fg"
+                    android:textSize="17sp" />
+
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <com.whale.campusrun.WheelPicker
+                        android:id="@+id/wheelPaceMin"
+                        android:layout_width="0dp"
+                        android:layout_height="120dp"
+                        android:layout_weight="1" />
+
+                    <TextView
+                        android:layout_width="18dp"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:text=":"
+                        android:textColor="@color/fg"
+                        android:textSize="22sp" />
+
+                    <com.whale.campusrun.WheelPicker
+                        android:id="@+id/wheelPaceSec"
+                        android:layout_width="0dp"
+                        android:layout_height="120dp"
+                        android:layout_weight="1" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/chipsPace"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:orientation="horizontal" />
+            </LinearLayout>
+
+            <LinearLayout
+                style="@style/SettingsGroup"
+                android:layout_marginBottom="12dp"
+                android:paddingStart="@dimen/row_padding_h"
+                android:paddingTop="14dp"
+                android:paddingEnd="@dimen/row_padding_h"
+                android:paddingBottom="12dp">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:fontFamily="sans-serif-medium"
+                    android:text="距离（公里）"
+                    android:textColor="@color/fg"
+                    android:textSize="17sp" />
+
+
+                <com.whale.campusrun.WheelPicker
+                    android:id="@+id/wheelDist"
+                    android:layout_width="match_parent"
+                    android:layout_height="120dp"
+                    android:layout_marginTop="12dp" />
+
+                <LinearLayout
+                    android:id="@+id/chipsDist"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:orientation="horizontal" />
+            </LinearLayout>
+
+            <LinearLayout
+                style="@style/SettingsGroup"
+                android:layout_marginBottom="12dp"
+                android:paddingStart="@dimen/row_padding_h"
+                android:paddingTop="14dp"
+                android:paddingEnd="@dimen/row_padding_h"
+                android:paddingBottom="12dp">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:fontFamily="sans-serif-medium"
+                    android:text="配速抖动（秒 / 公里）"
+                    android:textColor="@color/fg"
+                    android:textSize="17sp" />
+
+
+                <com.whale.campusrun.WheelPicker
+                    android:id="@+id/wheelTol"
+                    android:layout_width="match_parent"
+                    android:layout_height="120dp"
+                    android:layout_marginTop="12dp" />
+
+                <LinearLayout
+                    android:id="@+id/chipsTol"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:orientation="horizontal" />
+
+                <!-- 配速窗口：三项参数的实际容差，只读，作为这张卡的脚注 -->
+                <TextView
+                    android:id="@+id/tvPaceWindow"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:textColor="@color/fg_dim"
+                    android:textSize="12sp" />
+            </LinearLayout>
+
+
+
+            <!-- 轨迹毛刺：默认关闭 = 光滑轨迹；打开 = 多圈错位 + 毛刺/突起。
+                 它属于「轨迹长什么样」，所以和配速 / 距离 / 抖动放同一页。 -->
+            <LinearLayout
+                style="@style/SettingsGroup"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingStart="@dimen/row_padding_h"
+                android:paddingTop="14dp"
+                android:paddingEnd="@dimen/row_padding_h"
+                android:paddingBottom="14dp">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:fontFamily="sans-serif-medium"
+                        android:text="@string/l_burrs"
+                        android:textColor="@color/fg"
+                        android:textSize="17sp" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:lineSpacingExtra="2dp"
+                        android:text="@string/burrs_hint"
+                        android:textColor="@color/fg_dim"
+                        android:textSize="13sp" />
+                </LinearLayout>
+
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/swBurrs"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="12dp"
+                    android:contentDescription="@string/l_burrs" />
+            </LinearLayout>
+
+            <!-- 电池白名单：从主页挪过来的。它属于「跑步能不能跑稳」这件事，
+                 和配速 / 距离放同一页，主页只留进度和开始按钮。 -->
+            <LinearLayout
+                style="@style/SettingsGroup">
+
+                <com.whale.campusrun.SettingsRow
+                    android:id="@+id/rowBattery"
+                    app:rowTitle="电池白名单"
+                    app:rowSummary="不加入的话，息屏后进度会被系统冻结"
+                    app:rowChevron="true"
+                    app:rowDivider="false"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+            </LinearLayout>
+        </LinearLayout>
+    </ScrollView>
+</LinearLayout>

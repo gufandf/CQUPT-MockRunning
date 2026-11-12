@@ -9,8 +9,6 @@
  *
  * 所以把场地提到单例上：设置页拉完写进来，主页一比对 revision 就知道要不要
  * 重绑下拉框，全程不需要多打一次网络。
- *
- * 作者：WilliTourt的蓝色大肥鱼 🐟
  */
 package com.whale.campusrun
 

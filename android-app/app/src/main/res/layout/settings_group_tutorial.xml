@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    二级页：使用教程。
+
+  顶部一段正文，下面三行动作（复制 / 分享 / 展开脚本）。正文用卡片内边距块，
+  不塞进 SettingsRow —— 行是「一项设置」，正文是一段说明。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/bg"
+    android:orientation="vertical">
+
+    <include layout="@layout/settings_topbar" />
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:clipToPadding="false"
+        android:paddingBottom="24dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingTop="12dp">
+            <LinearLayout
+                style="@style/SettingsGroup">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:lineSpacingExtra="4dp"
+                    android:paddingStart="@dimen/row_padding_h"
+                    android:paddingTop="16dp"
+                    android:paddingEnd="@dimen/row_padding_h"
+                    android:paddingBottom="16dp"
+                    android:text="@string/tutorial_body"
+                    android:textColor="@color/fg_dim"
+                    android:textSize="14sp" />
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:layout_marginStart="@dimen/row_padding_h"
+                    android:background="@color/row_divider" />
+
+                <com.whale.campusrun.SettingsRow
+                    android:id="@+id/rowCopyScript"
+                    app:rowTitle="@string/b_copy_script"
+                    app:rowAccent="true"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+
+                <com.whale.campusrun.SettingsRow
+                    android:id="@+id/rowShareScript"
+                    app:rowTitle="@string/b_share_script"
+                    app:rowAccent="true"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+
+                <com.whale.campusrun.SettingsRow
+                    android:id="@+id/rowToggleScript"
+                    app:rowTitle="@string/b_view_script"
+                    app:rowChevron="true"
+                    app:rowDivider="false"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/scriptPanel"
+                style="@style/SettingsGroup"
+                android:layout_marginTop="12dp"
+                android:padding="@dimen/row_padding_h"
+                android:visibility="gone">
+
+                <ScrollView
+                    android:id="@+id/scriptScroll"
+                    android:layout_width="match_parent"
+                    android:layout_height="220dp"
+                    android:background="@drawable/field"
+                    android:padding="10dp">
+
+                    <TextView
+                        android:id="@+id/tvScript"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:fontFamily="monospace"
+                        android:textColor="@color/log"
+                        android:textSize="11sp" />
+                </ScrollView>
+
+                <TextView
+                    android:id="@+id/tvScriptPath"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:textColor="@color/fg_dim"
+                    android:textSize="11sp" />
+            </LinearLayout>
+        </LinearLayout>
+    </ScrollView>
+</LinearLayout>

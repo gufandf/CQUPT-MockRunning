@@ -74,10 +74,18 @@ class MapCanvasView @JvmOverloads constructor(
     /** 0..1，已跑比例。 */
     private var progress: Float = 0f
 
+    /**
+     * 是否显示"设置场地后显示边界 / 开始打卡后显示轨迹"那句占位提示。
+     *
+     * 倒计时会在地图上盖一层压暗，这两行字在遮罩下面是半透明的，
+     * 会跟中间的大号秒数叠在一起（"3" 和"日"糊成一团）。倒计时期间关掉它。
+     */
+    private var hintVisible = true
+
     private val pad = 48f
 
-    /** 地图卡片的圆角半径，跟 @drawable/box 的 18dp 对齐。 */
-    private val radius = 18f * resources.displayMetrics.density
+    /** 地图卡片的圆角半径，跟 @drawable/box 的 radius_card（24dp）对齐。 */
+    private val radius = resources.getDimension(R.dimen.radius_card)
 
     /** 圆角裁切路径，复用避免每次 onDraw 新建。 */
     private val clipPath = Path()
@@ -93,6 +101,14 @@ class MapCanvasView @JvmOverloads constructor(
     fun setTrack(points: List<DoubleArray>) {
         track = points
         invalidate()
+    }
+
+    /** 倒计时期间把占位提示收起来，免得跟秒数叠字。 */
+    fun setHintVisible(visible: Boolean) {
+        if (hintVisible != visible) {
+            hintVisible = visible
+            invalidate()
+        }
     }
 
     fun setProgress(p: Float) {
@@ -130,8 +146,10 @@ class MapCanvasView @JvmOverloads constructor(
         all.addAll(track.take(shown))
 
         if (all.isEmpty()) {
-            canvas.drawText("设置场地后显示边界", width / 2f, height / 2f - 10f, hintPaint)
-            canvas.drawText("开始打卡后显示轨迹", width / 2f, height / 2f + 30f, hintPaint)
+            if (hintVisible) {
+                canvas.drawText("设置场地后显示边界", width / 2f, height / 2f - 10f, hintPaint)
+                canvas.drawText("开始打卡后显示轨迹", width / 2f, height / 2f + 30f, hintPaint)
+            }
             return
         }
 
