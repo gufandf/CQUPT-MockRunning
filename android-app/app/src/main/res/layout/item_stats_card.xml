@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  成绩列表里的一张记录卡片。
+
+  结构（对齐 ColorOS 的分组卡片视觉，但每条记录单独成卡）：
+    第一行  日期 · 场地                      [无效]  [›]
+    第二行  X.XX km  ·  用时 mm:ss  ·  配速 m'ss
+    第三行  （仅无效记录）原因，灰字
+
+  为什么不用时间轴那套「竖线 + 圆点」：卡片列表里每张卡是独立对象，
+  点击命中区域就是整张卡，不用再算「第一行线从圆点往下、最后一行画到圆点」
+  这种首尾相接的边界条件；代价是少了流水账的连续感，换来了可点击性。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginStart="@dimen/gap_screen"
+    android:layout_marginEnd="@dimen/gap_screen"
+    android:layout_marginBottom="10dp"
+    android:background="@drawable/card_group"
+    android:clickable="true"
+    android:focusable="true"
+    android:orientation="vertical"
+    android:paddingStart="@dimen/row_padding_h"
+    android:paddingTop="14dp"
+    android:paddingEnd="@dimen/row_padding_h"
+    android:paddingBottom="14dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <TextView
+            android:id="@+id/tvCardTitle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:fontFamily="sans-serif-medium"
+            android:maxLines="1"
+            android:textColor="@color/fg"
+            android:textSize="16sp" />
+
+        <TextView
+            android:id="@+id/tvCardBadge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:background="@drawable/chip_bg"
+            android:paddingStart="8dp"
+            android:paddingTop="2dp"
+            android:paddingEnd="8dp"
+            android:paddingBottom="2dp"
+            android:text="@string/stats_badge_invalid"
+            android:textColor="@color/danger"
+            android:textSize="11sp"
+            android:visibility="gone" />
+
+        <!-- 卡片可点，这颗「›」只是形状提示：纯装饰，不该被 TalkBack 单独念，
+             所以走 contentDescription=null（整张卡的文字由子 TextView 依次朗读），
+             字符本身收进 @string/chevron（translatable=false） -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="6dp"
+            android:contentDescription="@null"
+            android:text="@string/chevron"
+            android:textColor="@color/fg_dim"
+            android:textSize="16sp" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/tvCardSub"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:textColor="@color/fg_dim"
+        android:textSize="13sp" />
+
+    <TextView
+        android:id="@+id/tvCardReason"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:textColor="@color/fg_dim"
+        android:textSize="12sp"
+        android:visibility="gone" />
+</LinearLayout>

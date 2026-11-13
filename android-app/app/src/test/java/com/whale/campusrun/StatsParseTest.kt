@@ -30,6 +30,27 @@ class StatsParseTest {
         assertEquals("11-09", StatsParse.dateLabel("", "1762700400"))
     }
 
+    /**
+     * `sportsResultNo`（成绩表那个字段名）和 `sportRecordNo` 同构：
+     * `<unifyId>_<placeCode>_<yyyyMMddHHmmss>`。成绩页读的是前一个，
+     * 万一哪天有人以为它不带时间戳、把记录号从 dateLabel 里摘掉，日期就会全空。
+     */
+    @Test
+    fun `成绩表的 sportsResultNo 同样能取到月日`() {
+        assertEquals(
+            "11-12",
+            StatsParse.dateLabel("1234567_T1001_20261112120538", null)
+        )
+    }
+
+    /** 记录号第 2 段是场地编号，轨迹页靠它去缓存里找围栏。 */
+    @Test
+    fun `记录号第二段是场地编号`() {
+        assertEquals("T1001", "1234567_T1001_20261112120538".split("_").getOrNull(1))
+        // 记录号不规范时不能抛，返回 null 由调用方兜底
+        assertEquals(null, "nounderscore".split("_").getOrNull(1))
+    }
+
     @Test
     fun `拿不到时间就返回空串`() {
         assertEquals("", StatsParse.dateLabel(null, null))

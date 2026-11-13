@@ -52,7 +52,9 @@ data class RunState(
     val serverMileage: Double = -1.0,
     val serverSeconds: Int = -1,
     val finished: Boolean = false,
-    val failed: Boolean = false
+    val failed: Boolean = false,
+    /** 暂停中（停表）。界面据此把按钮换成「继续」并显示暂停徽标。 */
+    val paused: Boolean = false
 )
 
 /** 统计页的一项。 */
@@ -102,13 +104,50 @@ class RunEngine(private val api: Api, private val l: RunListener) {
 
     @Volatile private var cancel = false
 
+    /**
+     * 暂停标记。语义是**停表**，不是只停上传：
+     *
+     *   · 暂停期间不再往上吐点，本地时钟也冻结（界面「用时 / 剩余」不再往前走）；
+     *   · 恢复时把暂停总时长记进 [pausedAccumMs]，之后每个点的时间轴整体往后挪 ——
+     *     也就是说 `collectTime` 的跨度仍然是「真实跑动时长」，暂停那段不记进去。
+     *
+     * 为什么必须挪时间轴而不是只等待：服务端配速 = `timeConsuming / mileage`，
+     * 而 `timeConsuming` 由这批点里首末点 `collectTime` 的跨度推出来。
+     * 暂停期间照样按原计划推进的话，这十分钟会原封不动算进时长，
+     * 配速立刻被拉到 maxPace 之外，整条记录判无效。
+     *
+     * 具体算术在 [PauseClock] 里（纯 JVM，可单测），这里只负责编排。
+     */
+    private val clock = PauseClock()
+
     /** 连接器层面的硬失败（服务器不可达）。界面据此弹「无法连接到服务器」。 */
     @Volatile var netFail = false
         private set
 
     fun cancel() {
         cancel = true
+        // 取消时把暂停解开，否则等待循环卡在 paused 上永远退不出来
+        clock.abort()
     }
+
+    /** 暂停（停表）。已经在暂停 / 已取消时是空操作。 */
+    fun pause() {
+        if (cancel) return
+        if (!clock.pause(SystemClock.elapsedRealtime())) return
+        l.log("   暂停：停表，不再上传点（恢复后暂停时长不计入配速）")
+    }
+
+    /** 恢复。把这次暂停的时长累加进时间轴偏移。 */
+    fun resume() {
+        if (cancel) return
+        val d = clock.resume(SystemClock.elapsedRealtime())
+        if (d <= 0L) return
+        l.log("   继续：本次暂停 ${fmtDuration((d / 1000).toInt())}，"
+                + "累计已顺延 ${fmtDuration((clock.pausedAccumMs / 1000).toInt())}")
+    }
+
+    /** 界面用来画「已暂停」徽标。 */
+    fun isPaused(): Boolean = clock.paused
 
     // ---------------------------------------------------------------- ①
 
@@ -264,6 +303,149 @@ class RunEngine(private val api: Api, private val l: RunListener) {
 
     // ---------------------------------------------------------------- 统计
 
+    /**
+     * 只把 /sportsResult/list 拍平成 [StatsRecord] 列表，**不做有效 / 无效的聚合**。
+     *
+     * 为什么单开一个：成绩页现在「所有记录一视同仁」地排成卡片，
+     * 不再需要 validCount / 平均配速 / 分场地那套摘要（那是按有效成绩算的）。
+     * 启动时预取走这条，少算一遍聚合，也不用为了一个列表去构造 [Stats]。
+     *
+     * 返回 null 表示网络或业务层失败，调用方保留旧缓存。
+     */
+    /**
+     * 拉全部历史记录（成绩页的数据源）。
+     *
+     * **主源是 `/sportRecord/mobile/list`，不是 `/sportsResult/list`。**
+     * 理由是字段名有确证：
+     *   · `refs/fetch_tracks.py` 是真实对着服务器跑通过的脚本（62 条记录），
+     *     它读的就是 `sportRecordNo` / `placeName` / `mileage` / `timeConsuming` /
+     *     `isValid` / `reason`；
+     *   · 而 `/sportsResult/list` 的记录号字段叫 `sportsResultNo`，只有
+     *     `refs/clear_stale.py` 间接用过 —— 之前代码读 `sportRecordNo`，
+     *     于是每一条都拿不到记录号，轨迹页一律打不开。
+     *
+     * 顺带解决另一件事：这个接口给的是**全部记录**（含无效），正是成绩页要的口径。
+     * `pageSize` 实测上限 100，按 `totalPage` 翻页，最多翻 [MAX_PAGES] 页防止打转。
+     *
+     * 拿不到时退回 `/sportsResult/list`（兼容极端情况：记录列表空但成绩表有数据）。
+     */
+    fun fetchRecords(): List<StatsRecord>? {
+        val fromRecords = fetchRecordsFromList()
+        if (fromRecords != null && fromRecords.isNotEmpty()) return fromRecords
+        return fetchRecordsFromSportsResult()
+    }
+
+    /** 每页 100 条是服务端硬上限；翻到 [MAX_PAGES] 页（1000 条）还没完就不再翻了。 */
+    private fun fetchRecordsFromList(): List<StatsRecord>? {
+        val out = ArrayList<StatsRecord>()
+        var page = 1
+        var totalPage = 1
+        while (page <= totalPage && page <= MAX_PAGES) {
+            val j = api.getRecordPage(page, PAGE_SIZE)
+            if (j == null) {
+                l.log("✗ 记录列表拉取失败：${api.lastError}")
+                netFail = true
+                return if (page == 1) null else out
+            }
+            val r = Resp.of(j)
+            if (!r.ok) {
+                l.log("✗ 记录列表业务失败 code=${r.code} ${r.msg}")
+                return if (page == 1) null else out
+            }
+            val data = r.data as? JSONObject ?: return if (page == 1) null else out
+            totalPage = data.optString("totalPage").toIntOrNull()
+                ?: data.optInt("totalPage", 1)
+            val list = data.optJSONArray("list") ?: break
+            for (i in 0 until list.length()) {
+                val o = list.optJSONObject(i) ?: continue
+                val recordNo = str(o, "sportRecordNo").ifEmpty { str(o, "sportsResultNo") }
+                if (recordNo.isEmpty()) continue
+                // mileage 是公里、timeConsuming 是秒（FINDINGS §4.4 / fetch_tracks.py）
+                val km = o.optDouble("mileage", 0.0).takeIf { it > 0.0 }
+                    ?: str(o, "mileage").toDoubleOrNull()?.takeIf { it > 0.0 }
+                    ?: 0.0
+                val sec = o.optString("timeConsuming").toIntOrNull()
+                    ?: o.optInt("timeConsuming", 0)
+                out.add(
+                    StatsRecord(
+                        recordNo = recordNo,
+                        placeName = str(o, "placeName"),
+                        placeCode = str(o, "placeCode").ifEmpty {
+                            recordNo.split("_").getOrNull(1).orEmpty()
+                        },
+                        distanceKm = km,
+                        durationSec = sec,
+                        dateLabel = StatsParse.dateLabel(recordNo, startTimeOf(o)),
+                        valid = str(o, "isValid") == "1",
+                        reason = str(o, "reason"),
+                        paceSecKm = if (km > 0.01) sec / km else 0.0
+                    )
+                )
+            }
+            if (list.length() < PAGE_SIZE) break
+            page++
+        }
+        if (out.isNotEmpty()) {
+            // 记录列表里可能有「挂起未结束」的记录（没有 end 过），排掉以免显示成一条 0 公里的假成绩
+            val clean = out.filter { it.distanceKm > 0.0 || it.durationSec > 0 }
+            if (clean.size != out.size) {
+                l.log("   过滤掉 ${out.size - clean.size} 条未结束 / 空记录")
+            }
+            return clean
+        }
+        return null
+    }
+
+    /** 记录里的时间字段名不统一，几处都试一下。 */
+    private fun startTimeOf(o: JSONObject): String =
+        str(o, "startTime").ifEmpty { str(o, "createTime") }
+            .ifEmpty { str(o, "endTime") }.ifEmpty { str(o, "time") }
+
+    /** 兜底源：`/sportsResult/list`。字段名见 [fetchRecords] 的注释。 */
+    private fun fetchRecordsFromSportsResult(): List<StatsRecord>? {
+        val j = api.getSportsResult()
+        if (j == null) {
+            l.log("✗ 无法连接到服务器：${api.lastError}")
+            netFail = true
+            return null
+        }
+        val r = Resp.of(j)
+        if (!r.ok) {
+            l.log("✗ 成绩拉取失败 code=${r.code} ${r.msg}")
+            return null
+        }
+        val arr = r.data as? JSONArray ?: return emptyList()
+        val out = ArrayList<StatsRecord>(arr.length())
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            val km = str(o, "distance").toDoubleOrNull()?.div(1000.0) ?: 0.0
+            val dur = str(o, "duration").toDoubleOrNull()?.toInt() ?: 0
+            // 这个接口的记录号字段叫 sportsResultNo，和记录列表的 sportRecordNo 同构
+            val recordNo = str(o, "sportsResultNo")
+                .ifEmpty { str(o, "sportRecordNo") }
+                .ifEmpty { str(o, "recordNo") }
+            out.add(
+                StatsRecord(
+                    recordNo = recordNo,
+                    placeName = str(o, "placeName"),
+                    placeCode = str(o, "placeCode")
+                        .ifEmpty { recordNo.split("_").getOrNull(1).orEmpty() },
+                    distanceKm = km,
+                    durationSec = dur,
+                    dateLabel = StatsParse.dateLabel(recordNo, startTimeOf(o)),
+                    valid = str(o, "isValid") == "1",
+                    reason = str(o, "reason"),
+                    paceSecKm = if (km > 0.01) dur / km else 0.0
+                )
+            )
+        }
+        val missingNo = out.count { it.recordNo.isEmpty() }
+        if (missingNo > 0) {
+            l.log("   ⚠ $missingNo/${out.size} 条记录没有记录号（字段可能变了，轨迹页会打不开）")
+        }
+        return out
+    }
+
     fun fetchStats(): Stats? {
         val j = api.getSportsResult()
         if (j == null) {
@@ -343,7 +525,7 @@ class RunEngine(private val api: Api, private val l: RunListener) {
         seed: Int,
         paceToleranceSec: Double = TrackGen.DEFAULT_PACE_TOLERANCE_SEC,
         validate: Boolean = true,
-        burrs: Boolean = false
+        burrs: Boolean = true
     ) {
         cancel = false
         var state = RunState(phase = "初始化", paceSecKm = paceSecKm, metersTotal = targetM)
@@ -375,10 +557,13 @@ class RunEngine(private val api: Api, private val l: RunListener) {
             noise = noise,
             seed = seed,
             paceToleranceSec = paceToleranceSec,
-            burrs = burrs
+            burrs = burrs,
+            placeCode = area.placeCode
         )
         val track = res.points
-        l.log("   轨迹模式：" + if (burrs) "毛刺 / 突起 开启" else "光滑（毛刺关闭）")
+        l.log("   轨迹模式：" + if (burrs) "四段流水线（内轨迹→逐圈→噪声→挤禁区）"
+                else "光滑（毛刺关闭）")
+        l.log("   场地参数：${area.placeName} / ${area.placeCode}")
         l.log("   ${TrackGen.summarize(track)}  (耗时 ${System.currentTimeMillis() - t0} ms)")
 
         // 平均配速是否落在「目标 ± 容差」内
@@ -496,6 +681,17 @@ class RunEngine(private val api: Api, private val l: RunListener) {
                 return
             }
 
+            // 暂停中：连点都不发。发出去服务端就会按 collectTime 把这批点连上，
+            // 暂停的十分钟会被算成「跑得很慢」。
+            if (!awaitResume(state) { st ->
+                    state = st
+                    push()
+                }) {
+                l.log("   已取消")
+                l.onState(state.copy(phase = "已取消", failed = true))
+                return
+            }
+
             val uj = api.uploadPoints(recordNo, b)
             if (uj == null) {
                 l.log("   批次 ${i + 1}/${batches.size} ✗ ${api.lastError}")
@@ -520,7 +716,9 @@ class RunEngine(private val api: Api, private val l: RunListener) {
             if ((i + 1) % 10 == 0 || i == batches.size - 1) {
                 l.log("   批次 ${i + 1}/${batches.size}　已跑 %.2f/%.2f km　用时 %s"
                     .format(uploadedMeters / 1000.0, targetM / 1000.0,
-                            fmtDuration(((SystemClock.elapsedRealtime() - startWall) / 1000).toInt())))
+                            fmtDuration((clock.runElapsedMs(
+                                startWall, SystemClock.elapsedRealtime()
+                            ) / 1000).toInt())))
             }
 
             if (realtime && i < batches.size - 1) {
@@ -535,20 +733,32 @@ class RunEngine(private val api: Api, private val l: RunListener) {
                 val target = startWall + track[uploadedPoints - 1].secOffset * 1000L
                 var lastPush = SystemClock.elapsedRealtime()
                 while (!cancel) {
-                    val remainMs = target - SystemClock.elapsedRealtime()
+                    // 暂停期间不推进时间轴：等恢复之后 target 会整体挪到累计暂停上
+                    if (clock.paused) {
+                        if (!awaitResume(state) { st ->
+                                state = st
+                                push()
+                            }) break
+                        lastPush = SystemClock.elapsedRealtime()
+                        continue
+                    }
+                    val remainMs = target + clock.pausedAccumMs - SystemClock.elapsedRealtime()
                     if (remainMs <= 0) break
                     Thread.sleep(minOf(remainMs, 200L))
+                    if (clock.paused) continue
                     val now = SystemClock.elapsedRealtime()
                     if (now - lastPush >= 900) {
                         lastPush = now
-                        val e = ((now - startWall) / 1000).toInt()
+                        // 本地时钟同样要扣掉暂停时长，否则暂停那十分钟会显示成"在跑"
+                        val e = (clock.runElapsedMs(startWall, now) / 1000).toInt()
                         state = state.copy(elapsedSec = e, etaSec = maxOf(0, totalSec - e))
                         push()
                     }
                 }
             }
 
-            val elapsed = ((SystemClock.elapsedRealtime() - startWall) / 1000).toInt()
+            val elapsed = (clock.runElapsedMs(startWall, SystemClock.elapsedRealtime()) / 1000)
+                .toInt()
             state = state.copy(
                 pointsDone = uploadedPoints,
                 metersDone = if (serverMileage >= 0) serverMileage * 1000 else uploadedMeters,
@@ -587,7 +797,11 @@ class RunEngine(private val api: Api, private val l: RunListener) {
             val forbidden = d?.optString("expiredCountInForbiddenArea") ?: "0"
             l.log("   记录：$km km / ${sec}s / $pts 点 / 禁跑区 $forbidden")
         }
-        l.log("完成。共耗时 ${(System.currentTimeMillis() - startMs) / 1000} 秒")
+        // 这里也要扣掉暂停：collectTime 的跨度不含暂停，日志/界面却按墙钟报的话，
+        // 两个数会差出整整一个暂停时长，看起来像「服务端少算了」。
+        val wallSec = ((System.currentTimeMillis() - startMs - clock.pausedAccumMs) / 1000)
+            .coerceAtLeast(0L)
+        l.log("完成。共耗时 $wallSec 秒")
 
         l.onState(state.copy(
             phase = if (er.ok) "已完成" else "已结束但返回异常",
@@ -599,13 +813,42 @@ class RunEngine(private val api: Api, private val l: RunListener) {
             metersDone = state.metersTotal,
             pointsDone = state.pointsTotal,
             batchesDone = state.batchesTotal,
-            elapsedSec = ((System.currentTimeMillis() - startMs) / 1000).toInt(),
+            elapsedSec = wallSec.toInt(),
             etaSec = 0,
             finished = true
         ))
     }
 
     // ---------------------------------------------------------------- 工具
+
+    /**
+     * 停在暂停状态，直到恢复或取消。
+     *
+     * 为什么单独抽出来：三处地方都要等 —— 每批上传之前、批次间的等待循环里。
+     * 等的时候要**继续广播 elapsedSec**（界面上的「用时」虽然冻结，但「暂停中」
+     * 这个状态得让用户看得见时间停在哪一秒），所以把 push 以回调传进来，
+     * 而不是在这里自己调 l.onState（那样会拿到调用方手里的旧 state）。
+     *
+     * @return true = 已恢复，可以继续；false = 被取消，调用方应当收工。
+     */
+    private fun awaitResume(currentState: RunState, emit: (RunState) -> Unit): Boolean {
+        if (!clock.paused) return true
+        var st = currentState.copy(phase = "已暂停", paused = true)
+        emit(st)
+        while (clock.paused && !cancel) {
+            Thread.sleep(150L)
+        }
+        return if (cancel) {
+            false
+        } else {
+            // 恢复：把 paused 清掉再广播一次，界面按钮才会从「继续」变回「结束打卡」
+            st = st.copy(phase = "上传中", paused = false)
+            emit(st)
+            true
+        }
+    }
+
+    // ---------------------------------------------------------------- 内部工具
 
     /** optString 对 JSON null 会返回字符串 "null"，统一清掉。 */
     private fun str(o: JSONObject, key: String): String {
@@ -688,6 +931,12 @@ class RunEngine(private val api: Api, private val l: RunListener) {
     }
 
     companion object {
+        /** 记录列表每页条数：服务端硬上限就是 100，传更大也只回 100。 */
+        private const val PAGE_SIZE = 100
+
+        /** 最多翻 10 页（1000 条）。真要更多，早就该在服务端做筛选了。 */
+        private const val MAX_PAGES = 10
+
         /** "5:30" → 330，"5.5" → 330，"330" → 330 */
         fun parsePace(s: String): Double? {
             val t = s.trim()

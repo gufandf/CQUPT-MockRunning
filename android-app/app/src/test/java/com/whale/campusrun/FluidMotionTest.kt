@@ -100,6 +100,127 @@ class FluidMotionTest {
         assertTrue("超过上限了：${f.sx}", f.sx <= 1.2f + 1e-4f)
     }
 
+    // ─────────────────────────────────────── ②b 装进渲染框
+
+    /** 一轴上的实际占用量：(s−1)·half + |t|，与 onDraw 的画法一一对应。 */
+    private fun used(s: Float, t: Float, half: Float): Float =
+        (((s - 1f) * half).coerceAtLeast(0f)) + abs(t)
+
+    @Test
+    fun `形变与位移叠加后仍装得进渲染框`() {
+        // 极限情况：满形变 + 满位移同时出现（以前两笔各占一份 room，加一起就出框了）
+        val half = 14f      // 56dp 图标按钮：room 6dp、本体 44dp → 半宽 14dp
+        val budget = 3.5f   // room 扣掉描边和发光后剩下的预算
+        for (s in listOf(1f, 1.05f, 1.2f, 1.5f)) {
+            for (t in listOf(0f, 2f, 5.4f, 20f, -20f)) {
+                val m = FluidMotion.fitMotion(s, s, t, t, half, half, budget)
+                assertTrue(
+                    "s=$s t=$t 出框：x 用了 ${used(m.sx, m.tx, half)}",
+                    used(m.sx, m.tx, half) <= budget + 1e-3f
+                )
+                assertTrue(
+                    "s=$s t=$t 出框：y 用了 ${used(m.sy, m.ty, half)}",
+                    used(m.sy, m.ty, half) <= budget + 1e-3f
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `超额时拉伸与位移按同一比例一起收`() {
+        val half = 20f
+        val budget = 4f
+        // 拉伸占 4（(1.2−1)·20）、位移占 8，总需求 12 → k = 1/3
+        val m = FluidMotion.fitMotion(1.2f, 1f, 8f, 0f, half, half, budget)
+        assertEquals("位移应收到 1/3", 8f / 3f, m.tx, 0.05f)
+        // 拉伸只剩 1/3 的增量：(1.2−1)·(1/3) = 0.0667 → sx ≈ 1.0667
+        assertEquals("拉伸应同步收到 1/3", 1.0667f, m.sx, 0.005f)
+        assertEquals("没超预算的轴不该被改", 1f, m.sy, 1e-6f)
+    }
+
+    @Test
+    fun `没超预算时原样返回`() {
+        val m = FluidMotion.fitMotion(1.05f, 0.98f, 1f, -2f, 30f, 30f, 10f)
+        assertEquals(1.05f, m.sx, 1e-6f)
+        assertEquals(0.98f, m.sy, 1e-6f)
+        assertEquals(1f, m.tx, 1e-6f)
+        assertEquals(-2f, m.ty, 1e-6f)
+    }
+
+    @Test
+    fun `只压缩不拉伸时不占用预算`() {
+        // 按压缩放（<1）是往里收，不该被预算罚掉；位移仍可全额使用
+        val m = FluidMotion.fitMotion(0.955f, 0.955f, 3f, 0f, 30f, 30f, 5f)
+        assertEquals(0.955f, m.sx, 1e-6f)
+        assertEquals(3f, m.tx, 1e-6f)
+    }
+
+    @Test
+    fun `退化的框尺寸不产生 NaN`() {
+        val m = FluidMotion.fitMotion(1.2f, 1.2f, 50f, 50f, 0f, 0f, 5f)
+        assertEquals(1f, m.sx, 1e-6f)
+        assertEquals(0f, m.tx, 1e-6f)
+    }
+
+    @Test
+    fun `按下拖满再松手的全过程都不出框`() {
+        // 按 LiquidButton 的真实时序重放一遍：按下 → 拖到极限 → 松手回弹，
+        // 每帧都过 fitMotion。弹簧会过冲，所以只夹目标值不够 ——
+        // 这一条守的就是「过冲那几帧也不能顶出渲染框」。
+        val halfW = 14f
+        val halfH = 14f
+        val budget = 3.2f
+        val dt = 1f / 60f
+
+        val deformX = LiquidSpring(0.15f, 0.15f).apply { set(1f) }
+        val deformY = LiquidSpring(0.15f, 0.15f).apply { set(1f) }
+        val rubberX = LiquidSpring(0.15f, 0.15f).apply { set(0f) }
+        val rubberY = LiquidSpring(0.15f, 0.15f).apply { set(0f) }
+
+        // 最大拉伸按 scaleWithK 算（56dp @3x = 168px 见方）
+        val maxScale = FluidMotion.scaleWithK(168f, 168f, 1.2f)
+        // 拖到橡皮筋几乎顶死
+        val f = FluidMotion.deformScaleFactors(500f, 300f, 90f * 3f, 0.55f, maxScale)
+        val target = FluidMotion.fitMotion(
+            f.sx, f.sy,
+            FluidMotion.rubberBand(500f, 0.05f, 28f * 3f),
+            FluidMotion.rubberBand(300f, 0.05f, 28f * 3f),
+            halfW, halfH, budget
+        )
+
+        fun assertFits(tag: String, sx: Float, sy: Float, tx: Float, ty: Float) {
+            val m = FluidMotion.fitMotion(sx, sy, tx, ty, halfW, halfH, budget)
+            assertTrue(
+                "$tag x 出框：${used(m.sx, m.tx, halfW)} > $budget",
+                used(m.sx, m.tx, halfW) <= budget + 1e-3f
+            )
+            assertTrue(
+                "$tag y 出框：${used(m.sy, m.ty, halfH)} > $budget",
+                used(m.sy, m.ty, halfH) <= budget + 1e-3f
+            )
+        }
+
+        // 阶段一：拖到极限（弹簧追目标）
+        repeat(40) {
+            deformX.step(target.sx, dt)
+            deformY.step(target.sy, dt)
+            rubberX.step(target.tx, dt)
+            rubberY.step(target.ty, dt)
+            assertFits("拖到极限第 $it 帧", deformX.value, deformY.value, rubberX.value, rubberY.value)
+        }
+
+        // 阶段二：松手回弹（欠阻尼，会过冲）
+        val bounce = 0.65f
+        listOf(deformX, deformY, rubberX, rubberY).forEach { it.retune(0.58f, bounce) }
+        repeat(120) {
+            deformX.step(1f, dt)
+            deformY.step(1f, dt)
+            rubberX.step(0f, dt)
+            rubberY.step(0f, dt)
+            assertFits("回弹第 $it 帧", deformX.value, deformY.value, rubberX.value, rubberY.value)
+        }
+    }
+
     // ─────────────────────────────────────── ③ 尺寸衰减
 
     @Test

@@ -176,6 +176,20 @@ class WheelPicker @JvmOverloads constructor(
 
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                /*
+                 * 只有按在**中间高亮行**上才算「要转滚轮」，按在上下两行就把手势还给父容器。
+                 *
+                 * 为什么：跑步参数页是 ScrollView，三个滚轮几乎占满中部。以前滚轮对任何
+                 * ACTION_DOWN 都 requestDisallowIntercept，于是「想往下滑看电池白名单」
+                 * 的结果是参数被改了（实测距离从 2.0 被滑成 0.5）。中间行本来就是
+                 * 唯一高亮、唯一表达"当前值"的地方，让它独占拖动既符合直觉，
+                 * 也给页面留出上下两条可滚动带。
+                 */
+                // 判定带 = 中间行 + 上下各 4dp（总共 48dp，正好是 Android 建议的最小触控尺寸）。
+                // 只取 rowHeight/2 的话是 40dp，比建议值小，落指要很准。
+                val halfBand = rowHeight / 2f + 4f * density
+                if (abs(event.y - height / 2f) > halfBand) return false
+
                 scroller.forceFinished(true)
                 removeCallbacks(flingTicker)
                 dragging = true

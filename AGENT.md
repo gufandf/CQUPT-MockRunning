@@ -11,7 +11,7 @@
 |---|---|
 | 名称 | 鲸鲸约跑（CampusRun） |
 | 一句话 | 微信小程序「重邮智慧体育」的打卡工具，**安卓单机版** |
-| 当前版本 | **vG1.11.1**（`versionCode 11101` / `versionName "G1.11.1"`）—— 版本号只在 `android-app/version.properties` 一处维护，**不明确要求发版就不进位**，规则见 [§5.1](#51-版本号规则semver) |
+| 当前版本 | **vG1.12.0**（`versionCode 11200` / `versionName "G1.12.0"`）—— 版本号只在 `android-app/version.properties` 一处维护，**不明确要求发版就不进位**，规则见 [§5.1](#51-版本号规则semver) |
 | License | MIT |
 | 仓库 | https://github.com/gufandf/CQUPT-MockRunning |
 | 目标服务 | `https://sport.cqupt.edu.cn/new_wxapp`（重邮智慧体育小程序后端） |
@@ -81,7 +81,9 @@ CQUPT-MockRunning/
 │   │   ├── RunEngine.kt      打卡状态机：换 token → 生成轨迹 → start2 → 分批上传 → end
 │   │   ├── LiveCapsule.kt    **流体云胶囊**：把 RunState 变成一条实时活动通知
 │   │   ├── RunService.kt     前台服务，保证息屏后台不被打死（通知内容来自 LiveCapsule）
-│   │   ├── TrackGen.kt       轨迹生成：配速标定 / 环线有机化 / 多尺度噪声 / 毛刺（纯 JVM 逻辑，可单测）
+│   │   ├── TrackGen.kt       轨迹生成：配速标定 / 采样 / 光滑模式对照（纯 JVM 逻辑，可单测）
+│   │   ├── TrackPipe.kt      **轨迹流水线**：① 固定内轨迹 → ② 逐圈不重合 → ③ 波动+噪声
+│   │   │                     → ④ 挤禁区；场地参数档案（placeCode）、手点内轨迹加载
 │   ├── app/src/main/res/layout/
 │   │   ├── settings_topbar.xml        二级页复用的固定顶栏（返回 + 动态标题）
 │   │   ├── activity_settings.xml      设置首页：七个 SettingsRow
@@ -131,17 +133,40 @@ CQUPT-MockRunning/
 **通知胶囊文案**：折叠态只放两段 —— 左「剩余 mm:ss」、右「预计完成 HH:mm」
 （`LiveCapsule.build` 的 `setShortCriticalText`），里程留给展开后的进度条。
 
-**成绩统计进页面就自动刷新**（`bindStats()` 里直接 `loadStats()`），
-另外支持**下拉刷新和上拉刷新**（`RefreshScrollView`，零依赖）：
-滚到顶再往下拉、滚到底再往上拉，过 64dp 松手就刷新。
+**成绩的数据源是 `/sportRecord/mobile/list`，不是 `/sportsResult/list`**：
+两个接口的记录号字段名不一样 —— 记录列表叫 `sportRecordNo`，成绩表叫 `sportsResultNo`。
+曾经在成绩表上按 `sportRecordNo` 读，结果每一条都拿不到记录号、轨迹页全打不开
+（界面上只表现为「没有记录号」，日志里一无所知）。改这块必须对着
+`refs/fetch_tracks.py`（真实跑过服务器的脚本）核字段名，别猜。
+`/sportsResult/list` 只作兜底。
+
+**成绩在应用启动时预取，不在页面里拉**：`MainActivity.onCreate` 末尾调
+`StatsLoader.warmUp()`，先读磁盘缓存（`StatsStore.restore`）把页面填上、
+再后台静默拉一次并落盘。成绩页 `bindStats()` **只读快照**、不发起网络请求，
+所以进页面不会闪「加载中」。断网时保留上次的成绩，只在顶部一行小字说明原因 ——
+启动阶段的网络失败不要弹窗。**不要**再退回「进页面才拉」或加回「刷新统计」按钮。
+
+**成绩缓存格式是自己定的一行一条，不要退回 org.json**：AGP 的 JVM 单测挂的是
+mockable android.jar，`org.json` 的每个方法都是 `throw RuntimeException("Stub!")`，
+用它在 `StatsStore.encode/decode` 里等于是「缓存写进去读不回来」这件事永远测不了。
+格式细节见 `StatsStore` 里 `encode` 上方的注释（`v1` 头 + 单元分隔符 + 转义）。
+
+**成绩页所有记录一视同仁**：不再分有效 / 无效。`StatsRecord.valid == false` 的
+记录照常排进列表，只是卡片右上角多一枚「无效」标、第三行写服务端给的原因。
+一条记录一张卡（`item_stats_card.xml`），整张卡可点，点进 `TrackActivity`。
+日期来自 `StatsParse.dateLabel()`（记录号尾部 14 位时间戳），拿不到就显示「—」，
+**不要编假日期**。
+
+**刷新只有下拉 / 上拉**（`RefreshScrollView`，零依赖）：滚到顶再往下拉、
+滚到底再往上拉，过 64dp 松手就刷新，拉动时内容跟着手指走（橡皮筋 + 弹簧回弹）。
 提示气泡要放在 `RefreshScrollView` **之后**（FrameLayout 里后画的在上层），
 放前面会被卡片盖住。
 
-**成绩统计只展示有效成绩**：`StatRow.valid == false` 的记录不进时间轴，
-统一收在页面最底部的「无效记录（N）」里，默认折叠。
-时间轴用 `item_stats_timeline.xml`（竖线 + 圆点 + 日期/场地 + 配速 + 最新标记），
-日期来自 `StatsParse.dateLabel()`（记录号尾部 14 位时间戳），拿不到就显示「第 N 次」，
-**不要编假日期**。
+**历史轨迹页**（`TrackActivity`）只认记录号：`GET /sportPoint/listAll/{no}` 返回
+**时间倒序**（画图前必须 reverse）、经纬度是**字符串**、而且有的记录服务端就是没有点
+（62 条里 32 条空）—— 空轨迹要如实说「服务端没有存轨迹点」，不是报错。
+导出走 `GpxExport.toGpx()`（时间强制 UTC、坐标固定 `Locale.US`、XML 转义），
+写 `cache/share/` 再 FileProvider + `ACTION_SEND`，不申请存储权限。
 
 **设置页的视觉参照 ColorOS 设置页**：一整组设置是**一张** `@style/SettingsGroup`
 （`@drawable/card_group`，28dp 圆角实心面），卡片里一行一项，行是 `SettingsRow`
@@ -156,6 +181,14 @@ CQUPT-MockRunning/
 设置页里的「流体云」分段只做两件事：报告胶囊可用状态、发一条测试胶囊。
 **不要**为了「让它更像流体云」去接 OPPO 私有 SDK —— ColorOS 16 完整兼容
 Android 16 的 Live Updates，公开 API 就是正路，私有 SDK 会把零依赖的招牌砸掉。
+
+**暂停是「停表」，不是只停上传**：跑步中主页底部是【暂停 / 继续】+【结束打卡】两颗
+（空闲时一颗整宽【开始打卡】，倒计时中一颗整宽【取消】）。
+暂停期间 `RunEngine` 既不发点、也不推进本地时钟；恢复时把暂停时长累进
+`pausedAccumMs`，之后每个点的发送目标时刻和 `elapsedSec` 都扣掉这段。
+**必须挪时间轴**：服务端配速 = `timeConsuming / mileage`，`timeConsuming` 由首末点
+`collectTime` 跨度推出，暂停照原计划推进就会被算成「跑得很慢」直接判无效。
+改这块之后要跑 `PauseClockTest`。
 
 主页**不要再塞表单**：场地 / 配速 / 距离 / 抖动都属于「设置」，改参数要进设置页。
 **电池白名单也在设置页**（跑步参数 → 电池白名单），主页只留「看进度 + 点开始」。
@@ -185,7 +218,8 @@ cd android-app && ./gradlew assembleRelease        # Windows 用 gradlew.bat
 
 # 单元测试（TrackGen 配速标定 + 围栏判定 + AreaStore 缓存状态机，纯 JVM）
 cd android-app && ./gradlew :app:testDebugUnitTest
-# 当前 56 个用例（TrackGen 12 + AreaStore 13 + FluidMotion 18 + LiquidSpring 9 + StatsParse 4）
+# 当前 105 个用例（TrackGen 13 + AreaStore 13 + FluidMotion 24 + LiquidSpring 9
+#   + StatsParse 6 + GpxExport 7 + BounceSpring 12 + PauseClock 9 + StatsStore 12）
 # 报告：android-app/app/build/reports/tests/testDebugUnitTest/index.html
 
 # 命令行版
@@ -205,6 +239,29 @@ python draw_text.py --openid <OPENID> --place 太极运动场 --live
 实测配速 == 目标配速（误差 ≤ 1 秒）、所有点落在电子围栏内、没有点落在禁跑区、
 **平均配速始终落在「目标 ± 容差」窗口内**、各种配速与种子下都不能越界、
 温和起伏既要有快慢差异也要有停顿、汇报速度与实际位移一致。
+
+**轨迹生成是四段串联**（`TrackPipe.kt`，v1.12.0 起默认路径），顺序不能换：
+
+```
+① innerTrack()   围栏 → 固定内轨迹（与 seed 无关，是 ②③ 的公共坐标系）
+② LapTrack       每圈叠不同的横向场，圈间距显式校验
+③ paceWeights()  配速形态 + 四层 AR(1) 噪声 + 稀疏野点
+④ place()        落在禁区的点沿最短合法出路**推出去**（不是拉回环线）
+```
+
+- **参数按场地选**（`FieldProfile`，键是 `placeCode`）：走廊宽度差 4 倍
+  （风华 7.9 m / 太极 13.3 m / 宁静苑 34.7 m），同一套幅度在宽走廊是"贴内道贴外道"、
+  在窄走廊就是"顶在围栏上"。新增场地按 `走廊/15` 自动推导。
+- **矩形跑道按"边"做恒定偏移**（`lapSegmented`）：整圈正弦的一阶谐波恰好把一条直边
+  推成弧，直角立刻看不出来。折角处的偏移方向要走**径向**，法向在那里没有定义。
+- **宁静苑的内轨迹由手点确定**：`refs/track_picker.py` → `refs/inner_rings.json`
+  → 复制到 `app/src/main/assets/inner_rings.json`。改了之后两边都要同步。
+- 手点环用**正则**解析而不是 `org.json`：AGP 的 JVM 单测挂的是 mockable android.jar，
+  `JSONObject` 每个方法都 `throw Stub!`，用它等于这段逻辑永远测不了。
+- `inner_rings.json` 有**两份**：`app/src/main/assets/`（打给运行时读）和
+  `app/src/test/resources/`（单测用）。assets **不会**自动进单测 classpath，
+  删了 test/resources 那份，`TrackPipe.profileFor()` 在单测里就取不到手点环
+  （返回 `pickedRing = null`，静默退回自动反解 —— 不报错，只是行为和线上不同）。
 
 **毛刺开关的两种模式都要测**（测试里用 `for (burrs in listOf(false, true))` 跑一遍）：
 关闭时必须和旧版光滑轨迹等价（5m+ 的一秒级跳点为 0、最大步长 < 5m），
@@ -243,6 +300,14 @@ python refs/verify_real_areas.py      # 三个真实场地 + 真实 jpq 禁跑�
 默认按高度 17.5%（92dp → 16dp）会再吃掉一圈，主页主按钮显式收到 10dp。
 room 上下左右都算，改小它要把高度同步减掉 2×差值（92dp → 84dp），
 否则按钮会「更宽又更高」，看起来是整颗被放大而不是和卡片对齐。
+**形变和位移共用一份 room，别各夹一次**：`FluidMotion.fitMotion` 是唯一的夹取入口，
+一轴上的约束是 `(sx−1)·半宽 + |tx| ≤ 预算`，超额按同比例一起收。
+曾经形变走 `clampDeform`（上限 `room·0.9`）、位移走 `coerceIn(±room·0.9)`，
+两个 0.9·room 加起来就是 1.8·room —— 56dp 的图标按钮拉到头右边只剩 5px，
+描边一压就被父容器裁成直角（实测主按钮右缘 5px、修好后 22px）。
+预算里要扣掉描边和 `glowRadius` 那圈模糊，否则「留了 room」也照样出框；
+`onDraw` 里必须对**实时值**再夹一次，抬手的欠阻尼回弹会过冲。
+`BounceSpring` / `FluidMotionTest` 里有用例按真实时序重放按下→拉满→松手，逐帧断言不出框。
 地图是 `MapCanvasView` 自绘，颜色取 `@color/map_*`，不要接地图 SDK。
 状态栏用 `@color/bg`、导航栏用 `@color/bg_deep`（都是纯色，与页面底连成一体）。
 

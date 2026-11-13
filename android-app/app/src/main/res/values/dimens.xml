@@ -10,8 +10,8 @@
     <dimen name="radius_card">24dp</dimen>
     <!-- 分组卡片（整组设置项共用一张）：比单卡片更圆，参照 ColorOS 设置页 -->
     <dimen name="radius_group">28dp</dimen>
-    <!-- 内嵌小块：输入框、分段选中块 -->
-    <dimen name="radius_inner">18dp</dimen>
+    <!-- radius_inner (18dp) 已随 @drawable/field 一起删掉：教程页收起只读脚本框后，
+         全工程再没有布局引那个输入框底，这条刻度留着就是没人读的常量 -->
     <!-- 胶囊按钮：height / 2，保证两头是正圆弧 -->
     <dimen name="radius_pill">999dp</dimen>
 

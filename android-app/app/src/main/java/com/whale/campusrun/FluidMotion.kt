@@ -139,6 +139,57 @@ internal object FluidMotion {
         return blend(sxDir, syDir, ax / total, ay / total)
     }
 
+    // ───────────────────────────────────────────── ②b 装进渲染框
+
+    /**
+     * 一步变换的四个量：两轴缩放 + 两轴位移（px）。
+     *
+     * 顺序与 `LiquidButton.onDraw` 一致：先 `translate(tx, ty)` 再 `scale(sx, sy, 中心)`。
+     * 单独抽出来是为了让「出不出框」这件事能在纯 JVM 里断言 ——
+     * 它以前只活在一句注释里，谁也没量过。
+     */
+    data class Motion(val sx: Float, val sy: Float, val tx: Float, val ty: Float)
+
+    /**
+     * 把形变与跟手位移**一起**夹进可绘制矩形。
+     *
+     * 胶囊围绕中心缩放，所以一轴上的越界量 = 拉伸量 + 位移量：
+     *
+     *     (sx − 1) · halfWidth + |tx|  ≤  budget
+     *
+     * `budget` 就是 view 边界到胶囊本体之间的那圈余量（`app:liquidRoom` 再扣掉描边）。
+     *
+     * **这里以前是两处独立的 `min(x, 1 + room·0.9/cw)` 和 `coerceIn(±room·0.9)`。**
+     * 两个 `0.9·room` 各自看都"有留白"，加起来却要用掉 1.8·room：
+     * 56dp 的顶栏图标按钮 room = 6dp，拉到头时 4.4dp 的拉伸叠上 5.4dp 的位移，
+     * 右边缘正好探出 view 一截，被父容器裁成一条直边 —— 就是"拉伸到极限超出渲染框"。
+     *
+     * 超额时按同一比例 k 同时收拉伸和位移，而不是先把位移夹死再夹形变：
+     * 那样在阈值处会突然从"边拉边长"变成"只剩平移"，手感是断的。
+     */
+    fun fitMotion(
+        sx: Float, sy: Float, tx: Float, ty: Float,
+        halfWidth: Float, halfHeight: Float, budget: Float
+    ): Motion {
+        if (halfWidth <= 0f || halfHeight <= 0f) return Motion(1f, 1f, 0f, 0f)
+        // 余量被描边 / 发光吃光时没有可拉伸的余地：保持形状（该压缩的仍压缩），位移归零
+        if (budget <= 0f) return Motion(sx.coerceAtMost(1f), sy.coerceAtMost(1f), 0f, 0f)
+        val x = fitAxis(sx, tx, halfWidth, budget)
+        val y = fitAxis(sy, ty, halfHeight, budget)
+        return Motion(x.first, y.first, x.second, y.second)
+    }
+
+    /** 单轴：只压缩（s < 1）不占余量，只有拉伸和位移共享 [budget]。 */
+    private fun fitAxis(s: Float, t: Float, half: Float, budget: Float): Pair<Float, Float> {
+        val grow = ((s - 1f) * half).coerceAtLeast(0f)
+        val shift = abs(t)
+        val used = grow + shift
+        if (used <= budget) return s to t
+        val k = budget / used
+        // 只削掉超出预算的那部分形变，压缩侧原样保留
+        return (s - grow * (1f - k) / half) to t * k
+    }
+
     // ───────────────────────────────────────────── ③ 尺寸修正
 
     /**

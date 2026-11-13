@@ -25,6 +25,16 @@ local.properties
 *.keystore
 *.jks
 
+# ─────────── 真实轨迹（含学号 + 真实 GPS） ───────────
+# refs/real_tracks/*.gpx 是本人真实跑步记录：文件名里带学号，内容是一整条真实
+# GPS 轨迹。这两样都不能进仓库 —— 一旦推上去，"谁的学号、某天几点在哪个操场
+# 跑了几圈"就永久留在 Git 历史里了。
+# 标定用的统计结论已经写进 refs/track_gen.py 的注释，复现只需要自己再跑一遍。
+refs/real_tracks/
+# 手点的内轨迹同理：它是照着真实轨迹在图上点的，和真实轨迹位置一致
+# （运行时那份在 android-app/app/src/main/assets/inner_rings.json，要提交）
+refs/inner_rings.json
+
 # ─────────── Python ───────────
 __pycache__/
 *.py[cod]

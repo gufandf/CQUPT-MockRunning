@@ -26,7 +26,6 @@ import android.text.TextWatcher
 import android.view.View
 import android.widget.EditText
 import android.widget.LinearLayout
-import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
@@ -93,20 +92,16 @@ class SettingsGroupActivity : AppCompatActivity() {
     private lateinit var swBurrs: androidx.appcompat.widget.SwitchCompat
     private lateinit var rowBattery: SettingsRow
 
-    private lateinit var rowRefreshStats: SettingsRow
-    private lateinit var tvStatsBig: TextView
-    private lateinit var tvStatsSub: TextView
-    private lateinit var tvStatsByPlace: TextView
-    private lateinit var timelineContainer: LinearLayout
-    private lateinit var rowInvalid: SettingsRow
-    private lateinit var invalidContainer: LinearLayout
+    private lateinit var tvStatsMeta: TextView
+    private lateinit var tvStatsError: TextView
+    private lateinit var statsList: LinearLayout
+    private lateinit var tvStatsEmpty: TextView
     private lateinit var statsScroll: RefreshScrollView
     private lateinit var tipTop: TextView
     private lateinit var tipBottom: TextView
+    private var statsListener: StatsLoader.OnLoaded? = null
 
-    private lateinit var scriptPanel: View
-    private lateinit var scriptScroll: ScrollView
-    private lateinit var tvScript: TextView
+    /** 脚本正文：只在「复制 / 分享」时才读，界面不再展示源码。 */
     private var scriptText: String = ""
 
     private lateinit var rowLiveState: SettingsRow
@@ -164,6 +159,9 @@ class SettingsGroupActivity : AppCompatActivity() {
             }
             G_LIVE -> updateLiveState()
             G_APPEARANCE -> updateThemeUi()
+            // 预取可能在页面进后台之后才回来（回调也可能因为页面 onStop 被跳过）：
+            // 回到前台再对一次快照，避免看到的是进页面那一刻的旧列表。
+            G_STATS -> renderSnapshot(StatsStore.snapshot)
             else -> {}
         }
     }
@@ -265,10 +263,12 @@ class SettingsGroupActivity : AppCompatActivity() {
             prefs.edit().putString("openid", oid).apply()
             renderOpenid()
             dialog.dismiss()
-            // 换了账号：旧场地缓存立刻作废，再自动连一次
+            // 换了账号：旧场地缓存与旧成绩立刻作废，再自动连一次
             if (AreaStore.publishedOpenid.isNotEmpty() && AreaStore.publishedOpenid != oid) {
                 AreaStore.invalidate()
                 AreaCache.clear(this)
+                // 成绩也属于上一个账号，留在本机既会串号也会先在页面上闪一下别人的记录
+                StatsStore.clear(this)
             }
             doConnect()
         }
@@ -481,10 +481,13 @@ class SettingsGroupActivity : AppCompatActivity() {
         markChips(findViewById(R.id.chipsDist), wheelDist.items[wheelDist.selectedIndex])
         markChips(findViewById(R.id.chipsTol), wheelTol.items[wheelTol.selectedIndex])
 
-        // 轨迹毛刺：默认关闭 = 光滑轨迹；打开 = 多圈错位 + 毛刺 / 突起。
+        // 拟真轨迹：默认**开启**（v1.12.0 起）。
+        // v1.11.x 及以前默认关 = v1.10.1 的光滑轨迹；现在默认走
+        // ① 固定内轨迹 → ② 逐圈不重合 → ③ 波动 + 噪声 → ④ 挤禁区，
+        // 参数按 placeCode 选。关掉仍然保留旧的光滑轨迹作对照。
         // 先读 prefs 再挂监听，免得初始化时把默认值当成一次用户改动写回去。
         swBurrs = findViewById(R.id.swBurrs)
-        swBurrs.isChecked = prefs.getBoolean("burrs", false)
+        swBurrs.isChecked = prefs.getBoolean("burrs", true)
         swBurrs.setOnCheckedChangeListener { _, on ->
             prefs.edit().putBoolean("burrs", on).apply()
         }
@@ -631,20 +634,22 @@ class SettingsGroupActivity : AppCompatActivity() {
 
     // ---------------------------------------------------------------- 成绩统计
 
+    /**
+     * 成绩页：只读 [StatsStore] 的快照，不再自己发起「进页面就拉」。
+     *
+     * 数据在应用启动时（[StatsLoader.warmUp]）就已经拉好并落盘，
+     * 这里进来直接渲染，页面一次成型 —— 不会先闪一下「加载中」再跳数字。
+     * 想要最新的，下拉 / 上拉一下；没有「刷新统计」按钮了（那是多余的一步）。
+     */
     private fun bindStats() {
-        rowRefreshStats = findViewById(R.id.rowRefreshStats)
-        tvStatsBig = findViewById(R.id.tvStatsBig)
-        tvStatsSub = findViewById(R.id.tvStatsSub)
-        tvStatsByPlace = findViewById(R.id.tvStatsByPlace)
-        timelineContainer = findViewById(R.id.timelineContainer)
-        rowInvalid = findViewById(R.id.rowInvalid)
-        invalidContainer = findViewById(R.id.invalidContainer)
+        tvStatsMeta = findViewById(R.id.tvStatsMeta)
+        tvStatsError = findViewById(R.id.tvStatsError)
+        statsList = findViewById(R.id.statsList)
+        tvStatsEmpty = findViewById(R.id.tvStatsEmpty)
 
         statsScroll = findViewById(R.id.statsScroll)
         tipTop = findViewById(R.id.tipTop)
         tipBottom = findViewById(R.id.tipBottom)
-
-        rowRefreshStats.setOnClickListener { loadStats() }
 
         statsScroll.onPull = { progress, fromTop ->
             val tip = if (fromTop) tipTop else tipBottom
@@ -665,79 +670,39 @@ class SettingsGroupActivity : AppCompatActivity() {
                 tip.visibility = View.GONE
             }
         }
-        statsScroll.onRefresh = { loadStats() }
+        statsScroll.onRefresh = { refreshStats() }
 
-        // 点开这一页就自动拉一次：成绩是「打开就想看最新的」的东西，
-        // 还要再点一下「刷新统计」才是多余的一步。
-        loadStats()
-        rowInvalid.setOnClickListener {
-            val show = invalidContainer.visibility != View.VISIBLE
-            invalidContainer.visibility = if (show) View.VISIBLE else View.GONE
-            // 右侧「展开 / 收起」跟着状态走，别让人以为没生效
-            rowInvalid.setValue(if (show) "收起" else "展开")
+        statsListener = StatsLoader.OnLoaded { snap ->
+            if (isFinishing || isDestroyed) return@OnLoaded
+            finishRefresh()
+            renderSnapshot(snap)
         }
+        StatsLoader.addListener(statsListener!!)
+
+        renderSnapshot(StatsStore.snapshot)
     }
 
-    private fun loadStats() {
-        // 正在拉的时候又拉了一次：把刷新指示器收掉，别让它一直转
-        if (panelBusy) {
-            finishRefresh()
-            return
-        }
+    override fun onDestroy() {
+        statsListener?.let { StatsLoader.removeListener(it) }
+        super.onDestroy()
+    }
+
+    /** 下拉 / 上拉触发的刷新：走和启动时同一条链路，成功后页面上会自己重绘。 */
+    private fun refreshStats() {
         val oid = openid()
         if (oid.isEmpty()) {
-            showStatsEmpty(getString(R.string.stats_need_openid))
             finishRefresh()
+            tvStatsError.visibility = View.VISIBLE
+            tvStatsError.text = getString(R.string.stats_need_openid)
             return
         }
-        panelBusy = true
-        rowRefreshStats.isEnabled = false
-        statsScroll.setRefreshing(true)
-        tvStatsBig.text = getString(R.string.stats_loading)
-        tvStatsSub.text = ""
-
-        Thread {
-            try {
-                if (!engine.connect(oid)) {
-                    ui.post {
-                        panelBusy = false
-                        rowRefreshStats.isEnabled = true
-                        finishRefresh()
-                        if (engine.netFail) {
-                            showStatsEmpty(getString(R.string.conn_failed_title))
-                            showConnectFailed()
-                        } else {
-                            showStatsEmpty(getString(R.string.stats_bad_openid))
-                        }
-                    }
-                    return@Thread
-                }
-                val s = engine.fetchStats()
-                ui.post {
-                    panelBusy = false
-                    rowRefreshStats.isEnabled = true
-                    finishRefresh()
-                    if (s == null) showStatsEmpty(getString(R.string.stats_failed))
-                    else renderStats(s)
-                }
-            } catch (t: Throwable) {
-                ui.post {
-                    panelBusy = false
-                    rowRefreshStats.isEnabled = true
-                    finishRefresh()
-                    showStatsEmpty("拉取异常：${t.javaClass.simpleName}")
-                }
-            }
-        }.start()
-    }
-
-    /** 拉取失败 / 没账号时的统一空态：上面一句原因，下面两块区域清空。 */
-    private fun showStatsEmpty(reason: String) {
-        tvStatsBig.text = reason
-        tvStatsSub.text = ""
-        tvStatsByPlace.visibility = View.GONE
-        renderTimeline(emptyList())
-        renderInvalid(emptyList())
+        StatsLoader.refresh(this, oid)
+        // 兜底：万一回调没来（比如页面已经在销毁过程中），1.2 秒后自己把指示器收掉。
+        // 必须先判断页面还在，否则这个延迟任务会打到已销毁的视图上。
+        ui.postDelayed({
+            if (isFinishing || isDestroyed) return@postDelayed
+            if (!StatsStore.loading) finishRefresh()
+        }, 1200)
     }
 
     /** 收起「刷新中…」气泡，把滚动容器恢复成可拉状态。 */
@@ -751,142 +716,132 @@ class SettingsGroupActivity : AppCompatActivity() {
     }
 
     /**
-     * 渲染成绩：时间轴 + 折叠的无效记录。
+     * 渲染一份快照：一行元信息 + 一串记录卡片。
      *
-     * 只用有效成绩（`valid == true`）：无效记录在服务端就是废的，
-     * 混在列表里只会让人以为「跑成了」；它们收在最底部，需要时才展开。
+     * **所有记录一视同仁**（v1.11.1 起）：判无效的那条照常列出来，
+     * 只是卡片右上角多一枚「无效」标、第三行写原因。
+     * 以前把它们折叠在页面最底部，反而让人以为「没有这条记录」。
      */
-    private fun renderStats(s: Stats) {
-        val valid = s.rows.filter { it.valid }
-        val invalid = s.rows.filterNot { it.valid }
+    private fun renderSnapshot(snap: StatsSnapshot?) {
+        if (!::statsList.isInitialized) return
+        statsList.removeAllViews()
 
-        tvStatsBig.text = getString(R.string.stats_valid_big, s.validCount)
-        tvStatsSub.text = if (s.validCount == 0) {
-            getString(R.string.stats_empty_hint)
+        val records = snap?.records.orEmpty()
+        val oid = openid()
+
+        if (records.isEmpty()) {
+            tvStatsMeta.text = ""
+            tvStatsEmpty.visibility = View.VISIBLE
+            tvStatsEmpty.text = when {
+                oid.isEmpty() -> getString(R.string.stats_need_openid)
+                // 启动预取还没回来：说「正在拉取」而不是「还没有记录」，
+                // 后者会让人以为这账号真没跑过。
+                StatsStore.loading -> getString(R.string.stats_loading_first)
+                snap?.error != null -> getString(R.string.stats_failed)
+                else -> getString(R.string.stats_empty)
+            }
+            tvStatsError.visibility = View.GONE
+            return
+        }
+
+        tvStatsEmpty.visibility = View.GONE
+
+        // 元信息一行：共几条 + 上次拉取时间。时间用相对说法，绝对时间没人读。
+        // fetchedAt 为 0 表示「这份是失败后留下的旧缓存，连时间都不知道」。
+        val fetchedAt = snap?.fetchedAt ?: 0L
+        // 「共 N 条」和「· 更新于 X」两段拼成一行；分隔符随 stats_meta_updated 一起进资源
+        val when_ = if (fetchedAt > 0L) {
+            getString(R.string.stats_meta_updated, relativeTime(fetchedAt))
+        } else ""
+        tvStatsMeta.text = getString(R.string.stats_meta_count, records.size) + when_
+
+        val err = snap?.error
+        if (err != null) {
+            tvStatsError.visibility = View.VISIBLE
+            tvStatsError.text = getString(R.string.stats_error_stale, err)
         } else {
-            getString(
-                R.string.stats_valid_sub,
-                s.totalKm,
-                if (s.avgPaceSecKm > 0) RunEngine.fmtPace(s.avgPaceSecKm) else "--",
-                if (s.fastestPaceSecKm > 0) RunEngine.fmtPace(s.fastestPaceSecKm) else "--"
-            )
+            tvStatsError.visibility = View.GONE
         }
 
-        // 分场地汇总：一行小字，保留「哪个场地跑得多」这个信息
-        tvStatsByPlace.visibility = if (s.byPlace.isEmpty()) View.GONE else View.VISIBLE
-        tvStatsByPlace.text = s.byPlace.joinToString("　·　") { "${it.first} ${it.second} 次" }
-
-        renderTimeline(valid)
-        renderInvalid(invalid)
+        records.forEach { r -> statsList.addView(buildCard(r)) }
     }
 
-    private fun renderTimeline(rows: List<StatRow>) {
-        timelineContainer.removeAllViews()
-        if (rows.isEmpty()) {
-            val empty = TextView(this).apply {
-                text = getString(R.string.stats_empty)
-                setTextColor(ContextCompat.getColor(context, R.color.fg_dim))
-                textSize = 14f
-                setPadding(0, dp(20), 0, dp(20))
-            }
-            timelineContainer.addView(empty)
-            return
-        }
+    private fun buildCard(r: StatsRecord): View {
+        val card = layoutInflater.inflate(R.layout.item_stats_card, statsList, false)
 
-        rows.forEachIndexed { index, row ->
-            val item = layoutInflater.inflate(R.layout.item_stats_timeline, timelineContainer, false)
+        // 场地名兜底：成绩表不一定带 placeName，就用 placeCode 去已拉到的场地列表里查。
+        // 直接显示 "T1001" 对用户没意义，显示"未知场地"又丢了信息。
+        val placeLabel = r.placeName.ifEmpty {
+            AreaStore.snapshot().firstOrNull { it.placeCode == r.placeCode }?.placeName.orEmpty()
+        }.ifEmpty { r.placeCode }.ifEmpty { getString(R.string.stats_no_place) }
 
-            item.findViewById<TextView>(R.id.tvTlTitle).text = buildString {
-                // 日期拿不到就退回「第 N 次」，绝不显示假日期
-                append(if (row.dateLabel.isNotEmpty()) row.dateLabel else "第 ${rows.size - index} 次")
-                append("　").append(row.placeName)
-            }
-            item.findViewById<TextView>(R.id.tvTlSub).text =
-                "%.2f km　·　用时 %s".format(row.distanceKm, row.timeText)
-            item.findViewById<TextView>(R.id.tvTlPace).text =
-                if (row.paceSecKm > 0) RunEngine.fmtPace(row.paceSecKm) else "--"
-
-            // 最新的那条打「最新」，并且圆点用主色（其余淡一档）
-            item.findViewById<View>(R.id.tvTlBadge).visibility =
-                if (index == 0) View.VISIBLE else View.GONE
-
-            val dot = item.findViewById<View>(R.id.tlDot)
-            dot.alpha = if (index == 0) 1f else 0.45f
-
-            // 竖线要首尾相接：第一行从圆点往下画，中间行贯通整行，最后一行画到圆点为止。
-            // 只设可见性会有 22dp 的断口 —— 每行的线都从自己顶上 22dp 才开始。
-            val line = item.findViewById<View>(R.id.tlLineTop)
-            val lp = line.layoutParams as android.widget.FrameLayout.LayoutParams
-            when {
-                rows.size == 1 -> line.visibility = View.INVISIBLE
-                index == 0 -> {
-                    lp.topMargin = dp(22)
-                    lp.height = android.widget.FrameLayout.LayoutParams.MATCH_PARENT
-                }
-                index == rows.size - 1 -> {
-                    lp.topMargin = 0
-                    lp.height = dp(22)
-                }
-                else -> {
-                    lp.topMargin = 0
-                    lp.height = android.widget.FrameLayout.LayoutParams.MATCH_PARENT
-                }
-            }
-            line.layoutParams = lp
-
-            timelineContainer.addView(item)
-        }
-    }
-
-    private fun renderInvalid(rows: List<StatRow>) {
-        rowInvalid.setTitle(getString(R.string.stats_invalid_title) + "（${rows.size}）")
-        rowInvalid.setValue(
-            when {
-                rows.isEmpty() -> "无"
-                invalidContainer.visibility == View.VISIBLE -> "收起"
-                else -> "展开"
-            }
+        // 卡片两行字都是给用户读的界面文本 → 走资源；「—」（日期缺失）和
+        // 「--」（配速缺失）是数值占位符，和 RunEngine.fmtPace 返回的 "--" 同性质，保留字面量
+        val title = getString(
+            R.string.stats_card_title,
+            if (r.dateLabel.isNotEmpty()) r.dateLabel else "—",
+            placeLabel
         )
-        invalidContainer.removeAllViews()
+        card.findViewById<TextView>(R.id.tvCardTitle).text = title
 
-        if (rows.isEmpty()) {
-            rowInvalid.isEnabled = false
-            invalidContainer.visibility = View.GONE
-            return
+        val sub = getString(
+            R.string.stats_card_sub,
+            getString(R.string.value_km, r.distanceKm),
+            RunEngine.fmtDuration(r.durationSec),
+            if (r.paceSecKm > 0) RunEngine.fmtPace(r.paceSecKm) else "--"
+        )
+        card.findViewById<TextView>(R.id.tvCardSub).text = sub
+
+        card.findViewById<View>(R.id.tvCardBadge).visibility =
+            if (r.valid) View.GONE else View.VISIBLE
+
+        val reason = card.findViewById<TextView>(R.id.tvCardReason)
+        if (!r.valid && r.reason.isNotEmpty()) {
+            reason.visibility = View.VISIBLE
+            reason.text = r.reason
         }
-        rowInvalid.isEnabled = true
 
-        rows.forEach { row ->
-            val tv = TextView(this).apply {
-                text = buildString {
-                    append(if (row.dateLabel.isNotEmpty()) row.dateLabel + "　" else "")
-                    append(row.placeName)
-                    append("　").append("%.2f km".format(row.distanceKm))
-                    if (row.reason.isNotEmpty()) append("　").append(row.reason)
-                }
-                setTextColor(ContextCompat.getColor(context, R.color.fg_dim))
-                textSize = 13f
-                setPadding(0, dp(8), 0, dp(8))
+        // 点开全屏轨迹页。没有记录号就没法拉轨迹（listAll 只认记录号），
+        // 那种情况只提示一句，不做成一个点了没反应的卡片。
+        card.setOnClickListener {
+            if (r.recordNo.isEmpty()) {
+                toast(getString(R.string.track_no_record_no))
+                return@setOnClickListener
             }
-            invalidContainer.addView(tv)
+            TrackActivity.start(this, r.recordNo, r.placeName, r.placeCode, r.dateLabel)
+        }
+        return card
+    }
+
+    /** 「3 分钟前 / 2 小时前 / 11-12」——比一串时间戳好读。 */
+    private fun relativeTime(at: Long): String {
+        val diff = (System.currentTimeMillis() - at) / 1000
+        // 这三句是成绩页上直接显示的文案，走资源；绝对时间那支沿用 MM-dd HH:mm 格式
+        return when {
+            diff < 60 -> getString(R.string.time_just_now)
+            diff < 3600 -> getString(R.string.time_minutes_ago, diff / 60)
+            diff < 86400 -> getString(R.string.time_hours_ago, diff / 3600)
+            else -> java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.CHINA)
+                .format(java.util.Date(at))
         }
     }
 
     // ---------------------------------------------------------------- 使用教程
 
+    /**
+     * 教程页只剩「正文 + 复制脚本 + 分享脚本」。
+     *
+     * 以前还有第三个动作「展开 / 收起脚本」，展开后是一个 220dp 的只读源码框。
+     * 那东西两头不讨好：真要脚本的人按「复制 / 分享」就够了，摆一份源码在
+     * 设置页里既占地方、又让人以为需要在这里读代码。脚本仍然随 App 分发
+     * （assets/get_openid.py），只是不再在界面上摊开。
+     */
     private fun bindTutorial() {
-        scriptPanel = findViewById(R.id.scriptPanel)
-        scriptScroll = findViewById(R.id.scriptScroll)
-        tvScript = findViewById(R.id.tvScript)
         findViewById<SettingsRow>(R.id.rowCopyScript).setOnClickListener { copyScript() }
         findViewById<SettingsRow>(R.id.rowShareScript).setOnClickListener { shareScript() }
-        findViewById<SettingsRow>(R.id.rowToggleScript).setOnClickListener {
-            scriptPanel.visibility =
-                if (scriptPanel.visibility == View.VISIBLE) View.GONE else View.VISIBLE
-        }
-        loadScript()
     }
 
+    /** 脚本正文只在「复制 / 分享」真正需要时才读，不再为了显示而预载。 */
     private fun loadScript() {
         try {
             scriptText = assets.open("get_openid.py")
@@ -894,9 +849,6 @@ class SettingsGroupActivity : AppCompatActivity() {
         } catch (t: Throwable) {
             scriptText = "# 脚本读取失败：" + t.javaClass.simpleName
         }
-        tvScript.text = scriptText
-        findViewById<TextView>(R.id.tvScriptPath).text =
-            "共 ${scriptText.lines().size} 行，存成 get_openid.py 双击运行"
     }
 
     private fun copyScript() {

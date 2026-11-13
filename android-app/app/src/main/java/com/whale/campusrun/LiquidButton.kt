@@ -362,8 +362,21 @@ class LiquidButton @JvmOverloads constructor(
         pressTarget = FluidMotion.pressScale(
             w.toFloat(), h.toFloat(), resources.displayMetrics.density
         )
+        // 发光的模糊半径跟着余量收 —— 56dp 的小图标按钮只留 6dp 余量，
+        // 还按 5dp 糊出去的话，那圈光自己就先越过 view 边界被裁掉，
+        // 看到的是一条直边重新盖上来（和按钮顶出框是同一个视觉结果）。
+        // 只在尺寸变化时重建：BlurMaskFilter 在 onDraw 里每帧新建太贵。
+        glowPaint.maskFilter = BlurMaskFilter(glowRadius, BlurMaskFilter.Blur.NORMAL)
         invalidate()
     }
+
+    /**
+     * 边缘光的模糊半径。
+     *
+     * 满额 5dp，但永远不超过余量的 40% —— 光必须长在 [room] 里面，
+     * 否则它会先于胶囊本体被 view 边界裁掉。这个值同样进 [fitBudget] 的账。
+     */
+    private val glowRadius: Float get() = min(dp(5f), room * 0.4f)
 
     // ---------------------------------------------------------------- 形变
 
@@ -382,16 +395,44 @@ class LiquidButton @JvmOverloads constructor(
     }
 
     /**
-     * 把形变幅度夹进余量。
+     * 形变 / 位移共用的「还能长出去多少」。
      *
-     * 形变是围绕锚点边长出来的，长出来的那一侧只有 [room] 可用。
-     * 宽胶囊本来就该拉得少（ColorOS 用 scaleWithK 干这件事），
-     * 这里再按实际余量兜一层，保证任何尺寸下都不越界。
+     * 胶囊本体离 view 边界只有 [room]，要从里面先扣掉两笔一直都在、却从来没进过账的开销：
+     *   · 描边（`strokeWidth` 以路径为中心线，一半长在轮廓外）；
+     *   · 边缘光的模糊半径（见 [glowRadius]）。只按半额计 ——
+     *     光本身就是软衰减，尾巴被裁掉一点点看不出来；
+     *     但胶囊本体那条硬边只要越出去一个像素，就会呈现成一条直角。
+     *     半额既能保住手感（56dp 的小图标按钮不至于形变全被砍没），也不露破绽。
+     *
+     * `0.9` 是给弹簧过冲留的：夹取只夹目标值，绘制值会被弹簧推过目标再荡回来，
+     * 所以预算不能给满。
      */
-    private fun clampDeform(sx: Float, sy: Float): Pair<Float, Float> {
-        val cw = rect.width().coerceAtLeast(1f)
-        val ch = rect.height().coerceAtLeast(1f)
-        return min(sx, 1f + room * 0.9f / cw) to min(sy, 1f + room * 0.9f / ch)
+    private val fitBudget: Float
+        get() {
+            val ink = strokePaint.strokeWidth / 2f
+            return ((room - ink - glowRadius * 0.5f) * 0.9f).coerceAtLeast(0f)
+        }
+
+    /**
+     * 把这一帧真正要画的 sx / sy / tx / ty 收进渲染框。
+     *
+     * 关键变化：**不再分别夹形变和位移**。以前两边各按 `room·0.9` 独立限幅，
+     * 加起来就是 1.8·room —— 56dp 的顶栏图标按钮 room = 6dp，拉到头正好探出 view 一条，
+     * 被父容器裁成直角。现在两者共享一份预算，超额按同比例一起收，
+     * 所以「指尖到哪、形状跟到哪」的手感不变，只是永远不会画到框外。
+     *
+     * 在 [onDraw] 里对实时值做，而不是只夹目标值：抬手回弹是欠阻尼的，
+     * 中途会过冲，只夹目标等于没夹。
+     */
+    private fun fitIntoBounds(sx: Float, sy: Float, tx: Float, ty: Float): FluidMotion.Motion {
+        // 尺寸还没定（首帧 / 被量成 0）就没有"框"可言，原样返回
+        if (!capsuleRect()) return FluidMotion.Motion(sx, sy, tx, ty)
+        return FluidMotion.fitMotion(
+            sx, sy, tx, ty,
+            halfWidth = rect.width() / 2f,
+            halfHeight = rect.height() / 2f,
+            budget = fitBudget
+        )
     }
 
     // ---------------------------------------------------------------- 绘制
@@ -409,8 +450,21 @@ class LiquidButton @JvmOverloads constructor(
             return
         }
 
-        val sx = deformX.value * pressSpring.value
-        val sy = deformY.value * pressSpring.value
+        /*
+         * 这一帧实际画出来的四个量 —— 全部经过 [fitIntoBounds]。
+         *
+         * 以前这里是 `deformX.value * pressSpring.value` 直接上画布：
+         * 形变由 MOVE 里的 clampDeform 夹过、位移由 coerceIn 夹过，
+         * 但两者各占一份余量、还都没扣描边，叠加后就伸出 view 边界了。
+         */
+        val fit = fitIntoBounds(
+            deformX.value * pressSpring.value,
+            deformY.value * pressSpring.value,
+            rubberX.value,
+            rubberY.value
+        )
+        val sx = fit.sx
+        val sy = fit.sy
 
         /*
          * 缩放锚点固定在胶囊中心。
@@ -428,7 +482,8 @@ class LiquidButton @JvmOverloads constructor(
         val py = rect.centerY()
 
         val save = canvas.save()
-        canvas.translate(rubberX.value, rubberY.value)
+        // 用夹过的 tx / ty，不是弹簧原始值 —— 原始值可能已经把胶囊推出去了
+        canvas.translate(fit.tx, fit.ty)
         canvas.scale(sx, sy, px, py)
 
         shape.reset()
@@ -532,15 +587,24 @@ class LiquidButton @JvmOverloads constructor(
                         width.toFloat(), height.toFloat(), baseMaxScale
                     )
                     val f = FluidMotion.deformScaleFactors(ddx, ddy, maxDeform, deformCurve, maxScale)
-                    val (sx, sy) = clampDeform(f.sx, f.sy)
-                    targetSx = sx
-                    targetSy = sy
 
-                    val roomLimit = room * 0.9f
-                    targetTx = FluidMotion.rubberBand(ddx, stretchCurve, maxStretch)
-                        .coerceIn(-roomLimit, roomLimit)
-                    targetTy = FluidMotion.rubberBand(ddy, stretchCurve, maxStretch)
-                        .coerceIn(-roomLimit, roomLimit)
+                    /*
+                     * 目标值也走同一套「装进渲染框」的夹取，但**形变和位移共享预算**。
+                     *
+                     * 以前这里是 clampDeform(f.sx, f.sy) + 位移各自 coerceIn(±room·0.9)：
+                     * 形变吃掉 0.9·room 之后，位移又能再吃 0.9·room，
+                     * 目标值本身就合法地组合成了一个出框的组合。
+                     * 现在目标值先按预算收好，onDraw 再对实时值兜一层（弹簧会过冲）。
+                     */
+                    val target = fitIntoBounds(
+                        f.sx, f.sy,
+                        FluidMotion.rubberBand(ddx, stretchCurve, maxStretch),
+                        FluidMotion.rubberBand(ddy, stretchCurve, maxStretch)
+                    )
+                    targetSx = target.sx
+                    targetSy = target.sy
+                    targetTx = target.tx
+                    targetTy = target.ty
 
                     postOnAnimation(ticker)
                 }

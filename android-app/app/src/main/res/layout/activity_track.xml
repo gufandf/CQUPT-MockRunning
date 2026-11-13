@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  全屏轨迹页：一条历史记录的地图 + 摘要 + 导出。
+
+  为什么单独开一页而不是在成绩列表里内嵌展开：
+    · 轨迹是「要看清」的东西，248dp 的内嵌块连围栏都画不完整；
+    · 独立页有完整的一屏高度、能放摘要和导出按钮，返回键回列表符合直觉。
+  地图本身复用首页的 MapCanvasView —— 同一套颜色、同一套围栏画法，
+  这样「首页看到的轨迹」和「历史里看到的轨迹」是一模一样的观感。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/bg"
+    android:orientation="vertical">
+
+    <!-- 固定顶栏：返回 + 标题（场地名）。复用二级页那套骨架，标题由代码填。 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="8dp"
+        android:paddingTop="8dp"
+        android:paddingEnd="16dp"
+        android:paddingBottom="6dp">
+
+        <com.whale.campusrun.LiquidButton
+            app:liquidTone="ghost"
+            app:liquidIcon="@drawable/ic_back"
+            app:liquidIconTint="@color/fg"
+            app:liquidRoom="6dp"
+            android:id="@+id/btnBack"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:contentDescription="@string/back" />
+
+        <TextView
+            android:id="@+id/tvTrackTitle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:letterSpacing="0.02"
+            android:maxLines="1"
+            android:textColor="@color/accent"
+            android:textSize="24sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:paddingStart="@dimen/gap_screen"
+        android:paddingTop="4dp"
+        android:paddingEnd="@dimen/gap_screen"
+        android:paddingBottom="20dp">
+
+        <!-- 地图：占满剩余高度，至少 260dp，否则围栏会被压成一条 -->
+        <com.whale.campusrun.MapCanvasView
+            android:id="@+id/mapTrack"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:minHeight="260dp" />
+
+        <!-- 摘要卡：距离 / 用时 / 配速 / 均速 -->
+        <LinearLayout
+            style="@style/SettingsGroup"
+            android:layout_marginTop="12dp"
+            android:layout_marginBottom="12dp"
+            android:paddingStart="@dimen/row_padding_h"
+            android:paddingTop="14dp"
+            android:paddingEnd="@dimen/row_padding_h"
+            android:paddingBottom="14dp">
+
+            <TextView
+                android:id="@+id/tvTrackSummary"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:fontFamily="sans-serif-medium"
+                android:textColor="@color/fg"
+                android:textSize="17sp" />
+
+            <TextView
+                android:id="@+id/tvTrackSub"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:textColor="@color/fg_dim"
+                android:textSize="13sp" />
+        </LinearLayout>
+
+        <!-- 导出：一个主操作胶囊。轨迹拉不到时禁用并说明原因 -->
+        <com.whale.campusrun.LiquidButton
+            app:liquidTone="accent"
+            app:liquidRoom="9dp"
+            android:id="@+id/btnExport"
+            android:layout_width="match_parent"
+            android:layout_height="80dp"
+            android:gravity="center"
+            android:text="@string/track_export"
+            android:textColor="@color/on_accent"
+            android:textSize="17sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+</LinearLayout>

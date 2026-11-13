@@ -1,14 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  二级页：成绩统计（时间轴）
+  二级页：成绩统计（卡片列表）
 
-  只统计 / 只展示**有效成绩**：
-    · 顶部一张卡：有效次数 + 累计里程 + 均配 + 最快
-    · 中间是时间轴，最新的在最上面，带「最新」标记
-    · 底部「无效记录（N）」默认折叠，点开才看得到
+  这一版和上一版的区别：
+    · **不再分有效 / 无效**。所有记录一个口径排在下面，判无效的那条在卡片右上角
+      带一枚「无效」小标（有原因就把原因写进第二行小字），不另设折叠区。
+    · **没有「刷新统计」按钮**。成绩在应用启动时就拉好并落盘了，进页面直接读快照；
+      想要最新的，下拉 / 上拉一下就够。
+    · 每条记录是**一张独立卡片**，不是共用一张大卡的时间轴。点开一条进全屏轨迹页。
 
-  为什么用时间轴：成绩是「一条条跑出来的」，竖线天然把它读成流水账；
-  表格反而要先读表头再对行。
+  为什么改成卡片：时间轴适合「一眼看流水」，但这一版每条都要能点进轨迹页、
+  还要能单独标无效 —— 一张卡一个对象，命中区域明确，也不用再算竖线怎么首尾相接。
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
@@ -24,139 +26,101 @@
         android:layout_height="0dp"
         android:layout_weight="1">
 
-    <com.whale.campusrun.RefreshScrollView
-        android:id="@+id/statsScroll"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:clipToPadding="false"
-        android:paddingBottom="24dp">
-
-        <LinearLayout
+        <com.whale.campusrun.RefreshScrollView
+            android:id="@+id/statsScroll"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:paddingTop="12dp">
+            android:layout_height="match_parent"
+            android:clipToPadding="false"
+            android:paddingBottom="24dp">
 
-            <!-- 刷新 + 摘要 -->
-            <LinearLayout style="@style/SettingsGroup">
-
-                <com.whale.campusrun.SettingsRow
-                    android:id="@+id/rowRefreshStats"
-                    app:rowTitle="@string/b_refresh_stats"
-                    app:rowAccent="true"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content" />
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:paddingStart="@dimen/row_padding_h"
-                    android:paddingTop="6dp"
-                    android:paddingEnd="@dimen/row_padding_h"
-                    android:paddingBottom="16dp">
-
-                    <TextView
-                        android:id="@+id/tvStatsBig"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:fontFamily="sans-serif-medium"
-                        android:text="@string/stats_hint"
-                        android:textColor="@color/fg"
-                        android:textSize="22sp" />
-
-                    <TextView
-                        android:id="@+id/tvStatsSub"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="4dp"
-                        android:textColor="@color/fg_dim"
-                        android:textSize="13sp" />
-
-                    <TextView
-                        android:id="@+id/tvStatsByPlace"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="6dp"
-                        android:textColor="@color/fg_dim"
-                        android:textSize="12sp"
-                        android:visibility="gone" />
-                </LinearLayout>
-            </LinearLayout>
-
-            <!-- 时间轴 -->
             <LinearLayout
-                style="@style/SettingsGroup"
-                android:paddingStart="@dimen/row_padding_h"
-                android:paddingTop="6dp"
-                android:paddingEnd="@dimen/row_padding_h"
-                android:paddingBottom="6dp">
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingTop="12dp">
 
-                <LinearLayout
-                    android:id="@+id/timelineContainer"
+                <!-- 一行状态：共几条 · 什么时候拉的。不占卡片，也不放按钮。
+                     拉取失败时第二行变红字说明原因，列表本身照旧显示缓存。 -->
+                <TextView
+                    android:id="@+id/tvStatsMeta"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="vertical" />
-            </LinearLayout>
-
-            <!-- 无效记录：默认折叠 -->
-            <LinearLayout style="@style/SettingsGroup">
-
-                <com.whale.campusrun.SettingsRow
-                    android:id="@+id/rowInvalid"
-                    app:rowChevron="true"
-                    app:rowTitle="@string/stats_invalid_title"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content" />
-
-                <LinearLayout
-                    android:id="@+id/invalidContainer"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical"
                     android:paddingStart="@dimen/row_padding_h"
                     android:paddingTop="2dp"
                     android:paddingEnd="@dimen/row_padding_h"
-                    android:paddingBottom="12dp"
+                    android:paddingBottom="10dp"
+                    android:textColor="@color/fg_dim"
+                    android:textSize="12sp" />
+
+                <TextView
+                    android:id="@+id/tvStatsError"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:paddingStart="@dimen/row_padding_h"
+                    android:paddingEnd="@dimen/row_padding_h"
+                    android:paddingBottom="10dp"
+                    android:textColor="@color/danger"
+                    android:textSize="12sp"
+                    android:visibility="gone" />
+
+                <!-- 记录卡片容器：每条一张 SettingsGroup 卡片，由 bindStats 逐个 inflate -->
+                <LinearLayout
+                    android:id="@+id/statsList"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical" />
+
+                <!-- 空态：垂直方向也居中一点。
+                     原来只有 56dp 上内边距，文案贴在标题栏下面，下面一大片空白，
+                     看起来像"内容没加载出来"而不是"这里就是空的"。
+                     用 minHeight 撑到接近一屏的一半，让它在视觉重心上。 -->
+                <TextView
+                    android:id="@+id/tvStatsEmpty"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center"
+                    android:minHeight="240dp"
+                    android:paddingStart="@dimen/row_padding_h"
+                    android:paddingEnd="@dimen/row_padding_h"
+                    android:text="@string/stats_empty"
+                    android:textColor="@color/fg_dim"
+                    android:textSize="14sp"
                     android:visibility="gone" />
             </LinearLayout>
-        </LinearLayout>
-    </com.whale.campusrun.RefreshScrollView>
+        </com.whale.campusrun.RefreshScrollView>
 
-    <!-- 气泡必须放在 ScrollView **之后**：FrameLayout 里后画的在上层，
-         放在前面会被卡片整个盖住，拖的时候看不见提示。 -->
-    <!-- 顶部 / 底部两个提示气泡：拉到一半显示「松手刷新」，刷新中显示「刷新中…」 -->
-    <TextView
-        android:id="@+id/tipTop"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="top|center_horizontal"
-        android:layout_marginTop="8dp"
-        android:background="@drawable/chip_bg"
-        android:paddingStart="14dp"
-        android:paddingTop="6dp"
-        android:paddingEnd="14dp"
-        android:paddingBottom="6dp"
-        android:text="@string/pull_to_refresh"
-        android:textColor="@color/fg_dim"
-        android:textSize="12sp"
-        android:visibility="gone" />
+        <!-- 气泡必须放在 ScrollView **之后**：FrameLayout 里后画的在上层，
+             放前面会被卡片整个盖住，拉的时候看不见提示。 -->
+        <TextView
+            android:id="@+id/tipTop"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top|center_horizontal"
+            android:layout_marginTop="8dp"
+            android:background="@drawable/chip_bg"
+            android:paddingStart="14dp"
+            android:paddingTop="6dp"
+            android:paddingEnd="14dp"
+            android:paddingBottom="6dp"
+            android:text="@string/pull_to_refresh"
+            android:textColor="@color/fg_dim"
+            android:textSize="12sp"
+            android:visibility="gone" />
 
-    <TextView
-        android:id="@+id/tipBottom"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom|center_horizontal"
-        android:layout_marginBottom="10dp"
-        android:background="@drawable/chip_bg"
-        android:paddingStart="14dp"
-        android:paddingTop="6dp"
-        android:paddingEnd="14dp"
-        android:paddingBottom="6dp"
-        android:text="@string/pull_to_refresh_up"
-        android:textColor="@color/fg_dim"
-        android:textSize="12sp"
-        android:visibility="gone" />
-
+        <TextView
+            android:id="@+id/tipBottom"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|center_horizontal"
+            android:layout_marginBottom="10dp"
+            android:background="@drawable/chip_bg"
+            android:paddingStart="14dp"
+            android:paddingTop="6dp"
+            android:paddingEnd="14dp"
+            android:paddingBottom="6dp"
+            android:text="@string/pull_to_refresh_up"
+            android:textColor="@color/fg_dim"
+            android:textSize="12sp"
+            android:visibility="gone" />
     </FrameLayout>
 </LinearLayout>

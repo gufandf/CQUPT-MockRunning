@@ -148,7 +148,52 @@ object TrackGen {
      * 0.55 ≈ 一秒级毛糙。分开叠而不是一个系数，才能既有大漂移又有小锯齿。
      */
     private val NOISE_RHO = doubleArrayOf(0.997, 0.970, 0.850, 0.550)
-    private val NOISE_SIGMA = doubleArrayOf(0.50, 0.27, 0.27, 0.33)
+
+    /*
+     * 噪声强度 —— 对着真实轨迹重新标定。
+     *
+     * 旧值 (0.50, 0.27, 0.27, 0.33) 让逐秒转角的中位数到了 6.0°，
+     * 而真实那次跑步只有 2.3°（p90 真实 11.2°，旧值 18.3°）——
+     * 也就是说旧模型"抖得太厉害"，画出来像信号差的仪器，不像人跑。
+     *
+     * 现在整体降到 0.22 / 0.10 / 0.07 / 0.045：中位数落到 3.2°、p90 降到 18°
+     * 一带，和真实分布的骨架对齐。保持远大于 > 近的衰减顺序不变（分钟级漂移最大），
+     * 因为那个是"每一圈横向错开几米"的来源，压掉就不像多圈叠图了。
+     */
+    private val NOISE_SIGMA = doubleArrayOf(0.22, 0.10, 0.07, 0.045)
+
+    /**
+     * 配速形态参数（与 `refs/track_model.py` 同一套，都有真实自相关支撑）。
+     *
+     * 速度变化基本是一个 AR(1)：真实记录的中位自相关阶梯 0.87 / 0.83 / 0.75 /
+     * 0.59 / 0.40 / 0.30 / 0.18 和 0.89^lag 几乎重合。所以不再用"每 40~70 秒
+     * 换一档常数"，那在 lag 5~10 上掉得太快。
+     */
+    private const val PACE_RHO = 0.89
+
+    /** 对数速度的平稳标准差。0.36 → 速度 CV ≈ 0.37，真实 0.27~0.41。 */
+    private const val PACE_LOG_STD = 0.36
+
+    /** 到终点累计慢 10%（真实每圈用时的漂移量级）。 */
+    private const val FATIGUE = 0.10
+
+    /** 起步 15 秒还没跑开 / 最后 20 秒冲一下。 */
+    private const val START_RAMP_SEC = 15
+    private const val START_RAMP = 0.90
+    private const val FINISH_KICK_SEC = 20
+    private const val FINISH_KICK = 1.05
+
+    /**
+     * 停顿：真实每场 7~21 段、中位 1~2 秒（约占 4% 时长），另有 0~1 次长停顿。
+     * 旧模型"2~3 段 × 4~9 秒"画出来是几个突兀的断点，而不是"跑着跑着顿一下"。
+     */
+    private const val MICRO_STALL_PER_MIN = 1.1
+    private val MICRO_STALL_LEN = 1..2
+    private const val LONG_STALL_PROB = 0.65
+    private val LONG_STALL_LEN = 5..20
+
+    /** 停顿期间的速度乘子（≈ 原地站住，但不绝对为 0，GPS 会有微小抖动）。 */
+    private const val STALL_FACTOR = 0.03
 
     /**
      * @param poly             电子围栏多边形（dzwl，gcj02），元素 [lat, lon]
@@ -158,8 +203,8 @@ object TrackGen {
      * @param noise            逐秒抖动强度，0.6 ≈ 开阔地手机滤波后的表现
      * @param seed             随机种子
      * @param paceToleranceSec 平均配速容差（秒/公里）
-     * @param burrs            是否叠加毛刺 / 突起。App 里由「轨迹毛刺」开关控制，
-     *                         默认关闭 = 走 v1.10.1 的光滑轨迹
+     * @param burrs            是否走 ①~④ 流水线。v1.12.0 起默认开启；
+     *                         关闭则回到 v1.10.1 的光滑轨迹（只作对照）
      */
     fun generate(
         poly: List<DoubleArray>,
@@ -169,7 +214,9 @@ object TrackGen {
         noise: Double = 0.6,
         seed: Int = 0,
         paceToleranceSec: Double = DEFAULT_PACE_TOLERANCE_SEC,
-        burrs: Boolean = false
+        burrs: Boolean = true,
+        /** 场地 ID（`/area/getAllArea` 的 placeCode）：决定 ①~④ 的整套参数。 */
+        placeCode: String? = null
     ): TrackResult {
         require(poly.size >= 3) { "区域多边形至少需要 3 个顶点" }
         require(paceSecKm > 0) { "配速必须为正数" }
@@ -181,33 +228,13 @@ object TrackGen {
         // 开关关闭：保持 v1.10.1 的光滑轨迹，一条线、没有多圈错位和野点。
         if (!burrs) return generateSmooth(fence, bans, paceSecKm, targetM, noise, seed, window)
 
-        // 开关打开：多圈错位 + 毛刺 / 突起。
-        // 先把环线定下来：基准环本身必须落得进去，噪声才有地方伸胳膊踢腿。
-        val ring = chooseRing(fence, bans, seed)
-
-        // 采样点数由「配速 × 距离」唯一确定（时长是硬约束）
-        var n = maxOf(2, Math.round(targetM / (1000.0 / paceSecKm)).toInt())
-        var adjusted = false
-        var pts = emptyList<TrackPoint>()
-        var pace = 0.0
-
-        for (attempt in 0 until MAX_PACE_FIX_ATTEMPTS) {
-            val weights = stepWeights(n, seed)
-            val spurs = makeSpurs(n, seed, (noise / 0.6).coerceIn(0.0, 2.5))
-            pts = build(ring, n, weights, spurs, targetM, noise, seed, fence, bans)
-            pace = paceOf(pts)
-            if (pace in window) break
-
-            // 飘出窗口：按配速比例反推该用多少秒。配速偏慢（数值偏大）
-            // 说明秒数多了，要减点；反之加点。
-            val ratio = pace / paceSecKm
-            val next = Math.round(n / ratio).toInt().coerceIn(2, n * 4 + 8)
-            if (next == n) break
-            n = next
-            adjusted = true
-        }
-
-        return TrackResult(pts, pace, window, adjusted)
+        // 开关打开：走 ①→④ 流水线（TrackPipe），参数按场地（placeCode）选。
+        //
+        // 顺序不能换：
+        //   · ①② 在 ③ 之前 —— 横向场和噪声都长在"环线坐标系"上；
+        //   · ③ 在 ④ 之前 —— 噪声会把点推进禁区，先压噪再挤，挤完才没人再推回去；
+        //   · ④ 只做位移，且在标定的二分内部参与距离计算，标定看到的是最终坐标。
+        return generatePipelined(fence, bans, paceSecKm, targetM, noise, seed, window, placeCode)
     }
 
     /** 平均配速允许窗口，单位秒/公里。 */
@@ -232,71 +259,6 @@ object TrackGen {
         return s
     }
 
-    /**
-     * 选一圈基准环。
-     *
-     * 以前是「先铺满噪声、再看落进去多少点」逐档试内缩，但采样阶段会把越界点
-     * 硬拽回来，于是每一档看起来都"全部落进去了"，永远停在第一档，实际却把
-     * 毛刺压平在围栏边。现在先检查未加噪声的内缩环本身：完全落进围栏、且不碰
-     * 禁跑区才用它；不合适就往里缩一档。环线合法了，后面的噪声才敢往外冒。
-     *
-     * 万一所有档位都非法（大面积禁跑区 / 凹围栏），退回到违例最少的一档，
-     * 采样阶段再做逐点回缩兜底。
-     */
-    private fun chooseRing(
-        fence: List<DoubleArray>,
-        excludes: List<List<DoubleArray>>,
-        seed: Int
-    ): List<DoubleArray> {
-        var fallback: List<DoubleArray> = emptyList()
-        var fallbackBad = Int.MAX_VALUE
-
-        for (f in RING_INSETS) {
-            val raw = inset(fence, f)
-            val bad = badPoints(raw, fence, excludes)
-            if (bad < fallbackBad) {
-                fallbackBad = bad
-                fallback = raw
-            }
-            if (bad == 0) return organic(raw, RING_WOBBLE_M, seed, fence, excludes)
-        }
-        return organic(fallback, RING_WOBBLE_M, seed, fence, excludes)
-    }
-
-    /** 多边形的边界（按 7m 加密）有多少点掉出围栏或压进禁跑区。 */
-    private fun badPoints(
-        poly: List<DoubleArray>,
-        fence: List<DoubleArray>,
-        excludes: List<List<DoubleArray>>
-    ): Int {
-        var bad = 0
-        for (i in poly.indices) {
-            val a = poly[i]
-            val b = poly[(i + 1) % poly.size]
-            val d = Geo.hav(a[0], a[1], b[0], b[1])
-            val k = maxOf(1, Math.ceil(d / RING_STEP_M).toInt())
-            for (j in 0 until k) {
-                val t = j.toDouble() / k
-                val lat = a[0] + (b[0] - a[0]) * t
-                val lon = a[1] + (b[1] - a[1]) * t
-                if (!isValid(lat, lon, fence, excludes)) bad++
-            }
-        }
-        return bad
-    }
-
-    /** 点是否同时满足「在围栏内」和「不在任何禁跑区」。 */
-    private fun isValid(
-        lat: Double,
-        lon: Double,
-        fence: List<DoubleArray>,
-        excludes: List<List<DoubleArray>>
-    ): Boolean {
-        if (!Geo.pointInPoly(lat, lon, fence)) return false
-        for (e in excludes) if (Geo.pointInPoly(lat, lon, e)) return false
-        return true
-    }
-
     /** 去掉重复顶点（服务器下发的多边形经常有连续重复点）。 */
     private fun dedupe(poly: List<DoubleArray>): List<DoubleArray> {
         val out = ArrayList<DoubleArray>(poly.size)
@@ -309,18 +271,6 @@ object TrackGen {
         }
         return out
     }
-
-    /** 统计结果：围栏内比例、禁跑区点数、总距离。 */
-    fun audit(pts: List<TrackPoint>, fence: List<DoubleArray>,
-              excludes: List<List<DoubleArray>>): String {
-        val inside = pts.count { Geo.pointInPoly(it.lat, it.lon, fence) }
-        val banned = pts.count { p -> excludes.any { Geo.pointInPoly(p.lat, p.lon, it) } }
-        return "围栏内 ${inside}/${pts.size} = ${"%.2f".format(inside * 100.0 / pts.size)}%" +
-                " | 禁跑区 $banned 点"
-    }
-
-    // ------------------------------------------------------------ 配速形态
-
     /**
      * 逐秒的"速度权重"。均值恒为 1，所以整体配速仍然锚在目标上；
      * 它只负责把匀速拆成有快有慢。
@@ -346,7 +296,6 @@ object TrackGen {
         if (mean > 0) for (i in 0 until n) w[i] /= mean
         return w
     }
-
     /**
      * "慢"的倍数：1.0 = 目标配速，越大越慢，22 ≈ 停下来系鞋带。
      *
@@ -387,7 +336,6 @@ object TrackGen {
 
         return out
     }
-
     /**
      * 分段常数的乘性扰动：每段随机长度、随机幅度。
      *
@@ -409,18 +357,35 @@ object TrackGen {
         }
         return out
     }
-
-    // ------------------------------------------------------------ 环线
-
     /** 向内缩放：每个顶点朝质心方向按比例靠拢。 */
+    /**
+     * 向内缩放：每个顶点朝质心方向按比例靠拢，并**统一成逆时针**。
+     *
+     * 为什么强制逆时针：国内操场默认逆时针跑，真实记录（5 条）累计转角全是负的；
+     * 而围栏多边形的顶点序是服务端给的，可顺可逆 —— 照抄的话，同一块场地
+     * 换台设备可能画成顺时针，与真实跑向相反，一眼假。
+     */
     private fun inset(poly: List<DoubleArray>, f: Double): List<DoubleArray> {
         val cLat = poly.map { it[0] }.average()
         val cLon = poly.map { it[1] }.average()
-        return poly.map {
+        val scaled = poly.map {
             doubleArrayOf(cLat + (it[0] - cLat) * f, cLon + (it[1] - cLon) * f)
         }
+        return if (signedArea(scaled) >= 0) scaled else scaled.reversed()
     }
 
+    /** 多边形有向面积（正 = 逆时针）。操场量级上用 (lon·cos(lat), lat) 平面近似足够。 */
+    private fun signedArea(poly: List<DoubleArray>): Double {
+        if (poly.size < 3) return 0.0
+        val k = Math.cos(Math.toRadians(poly.map { it[0] }.average()))
+        var s = 0.0
+        for (i in poly.indices) {
+            val a = poly[i]
+            val b = poly[(i + 1) % poly.size]
+            s += (a[1] * k) * b[0] - (b[1] * k) * a[0]
+        }
+        return s / 2.0
+    }
     /**
      * 把落到围栏外的点拉回围栏内 —— 沿"该点 → 质心"的连线二分逼近边界。
      *
@@ -440,138 +405,41 @@ object TrackGen {
         if (fence.size < 3) return doubleArrayOf(lat, lon)
         if (Geo.pointInPoly(lat, lon, fence)) return doubleArrayOf(lat, lon)
 
-        val cLat = fence.map { it[0] }.average()
-        val cLon = fence.map { it[1] }.average()
-        // 质心本身都不在围栏里（凹多边形）就没法这么拉，原样返回
-        if (!Geo.pointInPoly(cLat, cLon, fence)) return doubleArrayOf(lat, lon)
-
-        // 二分：t=0 在质心（内），t=1 是原点（外），找最大的"仍在内部"的 t
-        var lo = 0.0
-        var hi = 1.0
-        repeat(24) {
-            val mid = (lo + hi) / 2.0
-            val mlat = cLat + (lat - cLat) * mid
-            val mlon = cLon + (lon - cLon) * mid
-            if (Geo.pointInPoly(mlat, mlon, fence)) lo = mid else hi = mid
+        // 朝"最近的边"收，而不是"朝质心"收。
+        //
+        // 朝质心收的位移可以很大：实测一个越界点能被拽 69.9 m，于是相邻两个
+        // 采样点一个被拽回来、一个没被拽，一步就是 20 m —— 图上是一根拉出去
+        // 又拉回来的长刺，也正是"光滑轨迹却有 8m+ 跳点"的来源。
+        // 找最近边、沿该边法向贴回去，位移就是"越界深度"，最小且连续。
+        var bestD = Double.MAX_VALUE
+        var bestLat = lat
+        var bestLon = lon
+        for (i in fence.indices) {
+            val a = fence[i]
+            val b = fence[(i + 1) % fence.size]
+            val k = Math.cos(Math.toRadians(lat))
+            val ax = a[1] * k; val ay = a[0]
+            val bx = b[1] * k; val by = b[0]
+            val px = lon * k; val py = lat
+            val dx = bx - ax; val dy = by - ay
+            val len = dx * dx + dy * dy
+            val t = if (len == 0.0) 0.0 else ((px - ax) * dx + (py - ay) * dy) / len
+            val cx = ax + t.coerceIn(0.0, 1.0) * dx
+            val cy = ay + t.coerceIn(0.0, 1.0) * dy
+            val d = Math.hypot(px - cx, py - cy)
+            if (d < bestD) {
+                bestD = d
+                // 从最近边界点再往里让 0.6 m，避免正好压线被判出界
+                val inward = if (len == 0.0) 0.0 else 0.6 / Math.sqrt(len)
+                val tx = cx - dx * inward
+                val ty = cy - dy * inward
+                bestLat = ty
+                bestLon = tx / k
+            }
         }
-        // 往回让一丁点，避免正好压在边界线上被判出界
-        val t = (lo * 0.995).coerceIn(0.0, 1.0)
-        return doubleArrayOf(cLat + (lat - cLat) * t, cLon + (lon - cLon) * t)
+        if (!Geo.pointInPoly(bestLat, bestLon, fence)) return doubleArrayOf(lat, lon)
+        return doubleArrayOf(bestLat, bestLon)
     }
-
-    /**
-     * 有机化：把规则多边形磨成"人跑出来"的环线。
-     *
-     * 服务器给的区域大多是手采的多边形，内缩之后仍然是折线，航向只有几个固定值，
-     * 一眼机器画的。这里叠三类扰动：
-     *   1. 六条整数圈正弦（k = 2/3/5/7/11/17）。整数圈保证绕一圈后首尾自动闭合，
-     *      高频项负责把长直边揉出小波浪
-     *   2. 三到五处局部鼓包：位置随机、宽度 10~38m、幅度 ±2~6m，
-     *      对应真实跑者贴内道 / 绕人 / 抄近道留下的不对称
-     *   3. 一轮循环滑动平均，只磨掉最尖的折角，不用磨平上面的高频细节
-     *
-     * 鼓包和正弦可能把某几个点顶出围栏，这里立刻沿"该点 → 未扰动基准点"
-     * 二分收回来（只收回越界的那一小段），所以环线本身 100% 合法。
-     */
-    private fun organic(
-        raw: List<DoubleArray>,
-        amp: Double,
-        seed: Int,
-        fence: List<DoubleArray>,
-        excludes: List<List<DoubleArray>>
-    ): List<DoubleArray> {
-        // 加密到 ~7m 一个点，点太少磨不出高频细节
-        val dense = ArrayList<DoubleArray>()
-        val pts = raw + raw[0]
-        for (i in 0 until pts.size - 1) {
-            val a = pts[i]
-            val b = pts[i + 1]
-            val d = Geo.hav(a[0], a[1], b[0], b[1])
-            val k = maxOf(1, Math.ceil(d / RING_STEP_M).toInt())
-            for (j in 0 until k) {
-                val t = j.toDouble() / k
-                dense.add(doubleArrayOf(a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t))
-            }
-        }
-        val n = dense.size
-        if (n < 16) return raw
-
-        var per = 0.0
-        for (i in 0 until n) {
-            val a = dense[i]
-            val b = dense[(i + 1) % n]
-            per += Geo.hav(a[0], a[1], b[0], b[1])
-        }
-        val stepM = maxOf(1.0, per / n)
-        val rnd = Random(seed * 1_000_003 + 97)
-
-        // 整数圈正弦：频率就是圈数，k 越大波长越短
-        val harmonic = intArrayOf(2, 3, 5, 7, 11, 17)
-        val weight = doubleArrayOf(0.46, 0.34, 0.24, 0.17, 0.12, 0.07)
-        val phase = DoubleArray(harmonic.size) { rnd.nextDouble(0.0, 2 * PI) }
-        val waveAmp = DoubleArray(harmonic.size) {
-            amp * weight[it] * rnd.nextDouble(0.55, 1.25)
-        }
-
-        // 局部鼓包：宽度按节点数折算，中心用环上节点下标表示（绕圈取最短距离）
-        val bumpCount = 3 + rnd.nextInt(3)          // 3 ~ 5 处
-        val bumpCenter = DoubleArray(bumpCount)
-        val bumpWidth = DoubleArray(bumpCount)
-        val bumpAmp = DoubleArray(bumpCount)
-        for (b in 0 until bumpCount) {
-            bumpCenter[b] = rnd.nextDouble(0.0, n.toDouble())
-            val widthM = rnd.nextDouble(10.0, 38.0)
-            bumpWidth[b] = maxOf(1.0, widthM / stepM)
-            bumpAmp[b] = rnd.nextDouble(2.0, 6.2) *
-                    if (rnd.nextBoolean()) 1.0 else -1.0
-        }
-
-        var cur = ArrayList<DoubleArray>(n)
-        for (i in 0 until n) {
-            val prev = dense[(i - 1 + n) % n]
-            val next = dense[(i + 1) % n]
-            val hdg = Geo.bearing(prev[0], prev[1], next[0], next[1])
-            val u = i.toDouble() / n * 2 * PI
-
-            var off = 0.0
-            for (k in harmonic.indices) off += waveAmp[k] * sin(harmonic[k] * u + phase[k])
-            for (b in 0 until bumpCount) {
-                var di = abs(i - bumpCenter[b])
-                di = min(di, n - di)
-                off += bumpAmp[b] * exp(-0.5 * (di / bumpWidth[b]).pow(2))
-            }
-            cur.add(Geo.offset(dense[i][0], dense[i][1], off, (hdg + 90.0) % 360.0))
-        }
-
-        // 只磨一遍、窗口 2：再磨就回到"光滑椭圆"了
-        val w = 2
-        val smooth = ArrayList<DoubleArray>(n)
-        for (i in 0 until n) {
-            var sla = 0.0
-            var slo = 0.0
-            for (k in -w..w) {
-                val q = cur[(i + k + n) % n]
-                sla += q[0]
-                slo += q[1]
-            }
-            smooth.add(doubleArrayOf(sla / (2 * w + 1), slo / (2 * w + 1)))
-        }
-
-        // 收掉顶出围栏 / 碰进禁跑区的少数点
-        val out = ArrayList<DoubleArray>(n)
-        for (i in 0 until n) {
-            val p = smooth[i]
-            out.add(
-                if (isValid(p[0], p[1], fence, excludes)) {
-                    p
-                } else {
-                    pullToward(dense[i], p, fence, excludes)
-                }
-            )
-        }
-        return out
-    }
-
     /**
      * 沿 base → p 连线二分，找最大的、仍然合法的内插点。
      *
@@ -597,6 +465,16 @@ object TrackGen {
         return doubleArrayOf(base[0] + (p[0] - base[0]) * t, base[1] + (p[1] - base[1]) * t)
     }
 
+    private fun isValid(
+        lat: Double,
+        lon: Double,
+        fence: List<DoubleArray>,
+        excludes: List<List<DoubleArray>>
+    ): Boolean {
+        if (!Geo.pointInPoly(lat, lon, fence)) return false
+        for (e in excludes) if (Geo.pointInPoly(lat, lon, e)) return false
+        return true
+    }
     private fun densify(ring: List<DoubleArray>, stepM: Double): Pair<List<DoubleArray>, DoubleArray> {
         val out = ArrayList<DoubleArray>()
         val pts = ring + ring[0]
@@ -638,171 +516,74 @@ object TrackGen {
         return Pair(p, Geo.bearing(a[0], a[1], b[0], b[1]))
     }
 
-    // ------------------------------------------------------------ 毛刺 / 突起
-
-    /** 逐秒的额外横向 / 纵向偏移（米），叠加在环线的局部坐标系上。 */
-    private class Spurs(val lateral: DoubleArray, val forward: DoubleArray)
+    // ------------------------------------------------------------ ①~④ 流水线
 
     /**
-     * 稀疏野点：模拟真实 GPS 在多径、树荫、贴楼时突然"跳一下"。
+     * 毛刺模式的完整流水线：① 固定内轨迹 → ② 逐圈不重合 → ③ 波动 + 噪声
+     * → ④ 把压进禁区的点挤出去。四段实现在 `TrackPipe` 里，这里只负责
+     * 采样、二分标定和配速窗口修正。
      *
-     * 四档叠加，尺度都按总时长换算，所以 2km 和 5km 的密度一致：
-     *   · 小毛刺：1 个点、0.8~2.6m，约每 15 秒一次 —— 图上线边那一圈碎锯齿
-     *   · 硬毛刺：1~2 个点、3~8m，约每 45 秒一次 —— 明显的尖角和分叉
-     *   · 绕行包：4~9 个点、5~11m，约每 3 分钟一次 —— 大三角 / 半岛状突起
-     *   · 大跳：1 个点、9~16m，整场 1~2 次 —— 偶尔出现的长刺，最像"GPS 抽风"
+     * 采样点数 n 由「配速 × 距离」确定（时长是硬约束）；地面步长用二分反解，
+     * 使**输出距离精确等于 targetM**。噪声按秒注入、与步长无关，不标定就会把
+     * 实测距离撑长十几个百分点，配速跟着失准。
      *
-     * 全部只依赖下标和 seed，和 step 无关。这样二分标定时 measure(step) 仍然单调，
-     * 配速标定不会因为野点的位置漂移而失准。
+     * 关键：④ 的挤禁区发生在 emit() 内部，所以标定看到的是**最终坐标**，
+     * 不会出现"以为距离够了、挤出后其实被裁短"的自欺欺人。
      */
-    private fun makeSpurs(n: Int, seed: Int, intensity: Double): Spurs {
-        val lateral = DoubleArray(n)
-        val forward = DoubleArray(n)
-        if (n < 80) return Spurs(lateral, forward)
-
-        val rnd = Random(seed * 1_000_003 + 77)
-        val used = ArrayList<Int>()
-
-        fun free(at: Int, gap: Int): Boolean {
-            for (u in used) if (abs(u - at) < gap) return false
-            return true
-        }
-
-        val lo = maxOf(2, (n * 0.04).toInt())
-        val hi = minOf(n - 4, (n * 0.96).toInt())
-
-        // 大跳：先占位，免得被密集的小毛刺挤掉
-        repeat(maxOf(1, n / 450)) {
-            var tries = 0
-            while (tries++ < 60) {
-                val at = rnd.nextInt(lo, hi)
-                if (!free(at, 14)) continue
-                used.add(at)
-                val a = rnd.nextDouble(9.0, 16.0) * intensity * if (rnd.nextBoolean()) 1.0 else -1.0
-                lateral[at] = a
-                forward[at] = a * rnd.nextDouble(-0.25, 0.25)
-                break
-            }
-        }
-
-        // 大绕行包：一两处，走成一个不对称的三角形
-        repeat(maxOf(2, n / 230)) {
-            var tries = 0
-            while (tries++ < 80) {
-                val at = rnd.nextInt(lo, hi)
-                val span = rnd.nextInt(4, 10)          // 4 ~ 9 秒
-                if (at + span >= n || !free(at, span + 10)) continue
-                used.add(at)
-                val a = rnd.nextDouble(5.0, 11.0) * intensity * if (rnd.nextBoolean()) 1.0 else -1.0
-                val fwdShare = rnd.nextDouble(-0.25, 0.25)
-                for (k in 0..span) {
-                    val s = k.toDouble() / span
-                    lateral[at + k] = a * sin(PI * s)
-                    forward[at + k] = a * fwdShare * sin(2 * PI * s)
-                }
-                break
-            }
-        }
-
-        // 硬毛刺：一秒尖刺 / 两秒来回 / 两三秒的小三角
-        repeat(maxOf(4, n / 75)) {
-            var tries = 0
-            while (tries++ < 80) {
-                val at = rnd.nextInt(lo, hi)
-                if (!free(at, 8)) continue
-                used.add(at)
-                val a = rnd.nextDouble(3.0, 8.0) * intensity
-                val sign = if (rnd.nextBoolean()) 1.0 else -1.0
-                val share = rnd.nextDouble(-0.35, 0.35)
-                val shape = rnd.nextDouble()
-                if (shape < 0.45) {
-                    lateral[at] = a * sign
-                    forward[at] = a * share
-                } else if (shape < 0.72) {
-                    lateral[at] = a * sign
-                    forward[at] = a * share
-                    lateral[at + 1] = if (rnd.nextBoolean()) -a * 0.55 * sign else a * 0.3 * sign
-                } else {
-                    val span = rnd.nextInt(2, 5)          // 2 ~ 4 秒
-                    val peak = rnd.nextInt(1, span)
-                    for (k in 0..span) {
-                        val denom = maxOf(1.0, (if (k <= peak) peak else span - peak).toDouble())
-                        val frac = (1.0 - abs(k - peak) / denom).coerceAtLeast(0.0)
-                        lateral[at + k] = a * 1.2 * sign * frac
-                    }
-                }
-                break
-            }
-        }
-
-        // 小毛刺：频率高、幅度小，负责把线边揉毛
-        repeat(maxOf(6, n / 17)) {
-            var tries = 0
-            while (tries++ < 60) {
-                val at = rnd.nextInt(2, n - 2)
-                if (!free(at, 4)) continue
-                used.add(at)
-                val a = rnd.nextDouble(0.8, 2.6) * intensity * if (rnd.nextBoolean()) 1.0 else -1.0
-                lateral[at] = a
-                forward[at] = rnd.nextDouble(-0.5, 0.5) * a * 0.4
-                break
-            }
-        }
-        return Spurs(lateral, forward)
-    }
-
-    // ------------------------------------------------------------ 采样
-
-    /**
-     * 把噪声点收回到合法范围，但只收噪声那一截。
-     *
-     * 真实 GPS 漂到围栏外时，App 并不会把轨迹裁成边界线，它只是下一个点又回到
-     * 场内 —— 所以这里沿"基准点 → 噪声点"方向二分，保留毛刺的方向，只削减长度。
-     *
-     * 基准点本身就不合法（凹围栏 / 极端禁跑区）时退回 clampToFence，保证不出界。
-     */
-    private fun tolerate(
-        base: DoubleArray,
-        q: DoubleArray,
+    private fun generatePipelined(
         fence: List<DoubleArray>,
-        excludes: List<List<DoubleArray>>
-    ): DoubleArray {
-        if (isValid(q[0], q[1], fence, excludes)) return q
-        if (!isValid(base[0], base[1], fence, excludes)) {
-            return clampToFence(q[0], q[1], fence)
-        }
+        bans: List<List<DoubleArray>>,
+        paceSecKm: Double,
+        targetM: Double,
+        noise: Double,
+        seed: Int,
+        window: ClosedFloatingPointRange<Double>,
+        placeCode: String?
+    ): TrackResult {
+        val prof = TrackPipe.profileFor(placeCode, fence)
+        val base = TrackPipe.innerTrack(fence, bans, prof)
+        val track = TrackPipe.LapTrack(base, fence, bans, seed, prof)
 
-        var lo = 0.0
-        var hi = 1.0
-        repeat(22) {
-            val mid = (lo + hi) / 2.0
-            val mlat = base[0] + (q[0] - base[0]) * mid
-            val mlon = base[1] + (q[1] - base[1]) * mid
-            if (isValid(mlat, mlon, fence, excludes)) lo = mid else hi = mid
+        // 采样点数 = 「时长 + 1」：逐秒出点，n 个点覆盖 n-1 秒。
+        // 写成 round(targetM / 每步米数) 会丢掉这一秒 —— 2 km @ 330 s/km
+        // 应当是 660 秒，那种写法得到 660 个点 = 659 秒，配速天生少 0.5 秒，
+        // 再叠上距离误差就顶出 1 秒的容差。
+        var n = maxOf(2, Math.round(targetM * paceSecKm / 1000.0).toInt() + 1)
+        var adjusted = false
+        var pts = emptyList<TrackPoint>()
+        var pace = 0.0
+
+        for (attempt in 0 until MAX_PACE_FIX_ATTEMPTS) {
+            val weights = paceWeights(n, seed, prof)
+            pts = buildPipelined(track, n, weights, targetM, noise, seed, fence, bans, prof)
+            pace = paceOf(pts)
+            if (pace in window) break
+            val ratio = pace / paceSecKm
+            val next = Math.round(n / ratio).toInt().coerceIn(2, n * 4 + 8)
+            if (next == n) break
+            n = next
+            adjusted = true
         }
-        val t = (lo * 0.99).coerceIn(0.0, 1.0)
-        return doubleArrayOf(base[0] + (q[0] - base[0]) * t, base[1] + (q[1] - base[1]) * t)
+        return TrackResult(pts, pace, window, adjusted)
     }
 
-    /**
-     * 固定点数 n，按权重把每一秒该走的路程铺开，再叠加四层相关噪声和稀疏野点。
-     *
-     * 同一个 seed 每次都重现同一噪声实现，且野点位置只跟下标有关，
-     * 因此 measure 关于 step 仍近似单调，可以直接二分。
-     */
-    private fun build(
-        ring: List<DoubleArray>,
+    /** 固定 n，按权重铺路程，叠底噪与野点，再逐点挤出禁区。 */
+    private fun buildPipelined(
+        track: TrackPipe.LapTrack,
         n: Int,
         weights: DoubleArray,
-        spurs: Spurs,
         targetM: Double,
         noise: Double,
         seed: Int,
         fence: List<DoubleArray>,
-        excludes: List<List<DoubleArray>>
+        bans: List<List<DoubleArray>>,
+        prof: FieldProfile
     ): List<TrackPoint> {
-        val (dense, cum) = densify(ring, 1.0)
         val levels = NOISE_RHO.size
+        val noiseEff = noise * prof.noiseScale
+        val spurLat = DoubleArray(n)
+        val spurFwd = DoubleArray(n)
+        fillSpurs(n, seed, (noise / 0.6).coerceIn(0.0, 2.5) * prof.spurScale, spurLat, spurFwd)
 
         fun emit(step: Double): List<TrackPoint> {
             val rnd = Random(seed)
@@ -810,52 +591,46 @@ object TrackGen {
             val perr = DoubleArray(levels)
             val aerr = DoubleArray(levels)
             var travelled = 0.0
-
-            // 第一遍：先只按权重铺出真实坐标
             val lat = DoubleArray(n)
             val lon = DoubleArray(n)
             val pew = DoubleArray(n)
-            for (i in 0 until n) {
-                val (p, hdg) = pointAt(dense, cum, travelled)
+            val pushes = ArrayList<Double>()
 
-                // 野点是"事件"，AR 噪声是"底噪"，先加野点再加底噪
-                var perrT = spurs.lateral[i]
-                var aerrT = spurs.forward[i]
+            for (i in 0 until n) {
+                val (p, hdg) = track.locate(travelled)
+                // 野点是"事件"，AR 噪声是"底噪"：先加野点再加底噪
+                var perrT = spurLat[i]
+                var aerrT = spurFwd[i]
                 for (c in 0 until levels) {
+                    // 四层各有自己的时间常数，场地可以单独收放其中某几层
+                    val w = prof.noiseLayers[c]
                     perr[c] = NOISE_RHO[c] * perr[c] +
-                            rnd.nextDouble(-1.0, 1.0) * noise * NOISE_SIGMA[c]
+                            rnd.nextDouble(-1.0, 1.0) * noiseEff * NOISE_SIGMA[c] * w
                     aerr[c] = NOISE_RHO[c] * aerr[c] +
-                            rnd.nextDouble(-1.0, 1.0) * noise * NOISE_SIGMA[c]
+                            rnd.nextDouble(-1.0, 1.0) * noiseEff * NOISE_SIGMA[c] * w
                     perrT += perr[c]
                     aerrT += aerr[c] * 0.45
                 }
-
                 val o1 = Geo.offset(p[0], p[1], perrT, (hdg + 90.0) % 360.0)
                 val q = Geo.offset(o1[0], o1[1], aerrT, hdg)
-                val c = tolerate(p, q, fence, excludes)
+                val c = TrackPipe.place(p, doubleArrayOf(q[0], q[1]), fence, bans, pushes)
                 lat[i] = c[0]
                 lon[i] = c[1]
                 pew[i] = perrT
                 travelled += step * weights[i]
             }
 
-            // 第二遍：speed / bearing 从**最终坐标**反推。
-            // 这样上报的字段和轨迹严格自洽，不会出现"速度写着 3.0 但两点间距 1.2m"。
+            // speed / bearing 从**最终坐标**反推：上报字段与轨迹严格自洽
             val out = ArrayList<TrackPoint>(n)
             for (i in 0 until n) {
                 val j = if (i < n - 1) i + 1 else i - 1
                 val seg = Geo.hav(lat[i], lon[i], lat[j], lon[j])
                 val brg = if (i < n - 1) Geo.bearing(lat[i], lon[i], lat[j], lon[j])
                 else if (n > 1) Geo.bearing(lat[j], lon[j], lat[i], lon[i]) else 0.0
-
-                // 精度：多数时候 4~8m，背阴 / 贴楼时偶尔跳到十几米
                 val acc = 4.5 + abs(pew[i]) * 0.30 + rndAcc.nextDouble(-1.0, 2.2)
-
                 out.add(
                     TrackPoint(
-                        lat = lat[i],
-                        lon = lon[i],
-                        secOffset = i,
+                        lat = lat[i], lon = lon[i], secOffset = i,
                         speed = Math.round(seg * 100.0) / 100.0,
                         bearing = Math.round(brg * 10.0) / 10.0,
                         accuracy = Math.round(acc.coerceIn(3.0, 18.0) * 10.0) / 10.0
@@ -865,20 +640,165 @@ object TrackGen {
             return out
         }
 
-        fun measure(pts: List<TrackPoint>): Double = distanceOf(pts)
+        fun measure(p: List<TrackPoint>): Double = distanceOf(p)
 
-        // 噪声按秒注入、与步长无关，会把实测距离撑长。二分反解地面步长，
-        // 让输出轨迹的实测距离 == targetM，配速才准。
         if (measure(emit(0.0)) >= targetM) return emit(0.0)
-
         var lo = 0.0
-        var hi = 5.0                       // 5 m/s 起步，2000m 的量级足够越过目标
+        var hi = 5.0
         while (measure(emit(hi)) < targetM && hi < 1e5) hi *= 1.5
         repeat(46) {
             val mid = (lo + hi) / 2.0
             if (measure(emit(mid)) < targetM) lo = mid else hi = mid
         }
-        return emit((lo + hi) / 2.0)
+        var step = (lo + hi) / 2.0
+        var best = emit(step)
+        // ④ 的挤禁区会让 measure(step) 出现平台：点被推到禁区外之后，再加大
+        // 地面步长，实测距离的增量不再均匀（太极实测偏 1.02 秒，刚好卡在容差外）。
+        // 二分之后再做几步"按比例修正"，把实测距离拉回 targetM。
+        for (round in 0 until 8) {
+            val got = measure(best)
+            val err = got - targetM
+            if (abs(err) <= targetM * 0.0005) break
+            val ratio = if (got > 0) targetM / got else 1.0
+            val nxt = (step * ratio).coerceIn(step * 0.5, step * 2.0)
+            if (abs(nxt - step) < 1e-9) break
+            val cand = emit(nxt)
+            if (abs(measure(cand) - targetM) < abs(err)) {
+                step = nxt
+                best = cand
+            } else break   // 不再改善就停，避免在平台上反复横跳
+        }
+        return best
+    }
+
+    /**
+     * 逐秒速度权重（均值恒为 1），波动强度按场地收放。
+     *
+     * 真实步长 CV 差得很远：宁静苑 0.38/1.35、风华 0.40/0.59、太极 0.29 ——
+     * 共用一套 PACE_LOG_STD 会让太极的起伏比真实大一倍。
+     */
+    private fun paceWeights(n: Int, seed: Int, prof: FieldProfile): DoubleArray {
+        if (n < 4) return DoubleArray(n) { 1.0 }
+        val rnd = Random(seed * 7919 + 13)
+        val std = PACE_LOG_STD * prof.paceLogScale
+        val half = std * Math.sqrt(1.0 - PACE_RHO * PACE_RHO) * Math.sqrt(3.0)
+        val g = DoubleArray(n)
+        g[0] = rnd.nextDouble(-std, std)
+        for (i in 1 until n) {
+            // 两个 uniform 之和近似正态：Kotlin 侧只有 nextDouble，和 Python 同构
+            val nz = (rnd.nextDouble(-1.0, 1.0) + rnd.nextDouble(-1.0, 1.0)) / 1.4142
+            g[i] = PACE_RHO * g[i - 1] + nz * half
+        }
+        for (i in 0 until n) {
+            val t = if (n > 1) i.toDouble() / (n - 1) else 0.0
+            g[i] -= Math.log(1.0 + FATIGUE * t)
+            if (i < START_RAMP_SEC) {
+                val ramp = 1.0 - (1.0 - START_RAMP) * (1.0 - i.toDouble() / START_RAMP_SEC)
+                g[i] += Math.log(ramp)
+            }
+            if (i >= n - FINISH_KICK_SEC) g[i] += Math.log(FINISH_KICK)
+        }
+        val w = DoubleArray(n) { Math.exp(g[it]) }
+        for ((at, len) in stallWindows(n, seed, prof)) {
+            for (k in at until min(n, at + len)) w[k] *= STALL_FACTOR
+        }
+        val mean = w.average()
+        if (mean > 0) for (i in 0 until n) w[i] /= mean
+        return w
+    }
+
+    /**
+     * 稀疏野点：真机 GPS 在多径 / 树荫 / 贴楼时的突发跳点。
+     *
+     * 四档，按「每 660 秒多少次」定密度，所以 2km 和 5km 的观感一致：
+     *   · 大跳 9~16 m（沿轨为主，一步窜出去立刻回来）
+     *   · 绕行包 4~9 点 × 5~11 m（侧面，像绕人）
+     *   · 硬毛刺 3~8 m（一秒尖刺 / 两步来回）
+     *   · 小毛刺 0.8~2.6 m（把线边揉毛）
+     *
+     * 位置只依赖下标与 seed，与 step 无关 —— 这样二分标定时 measure(step)
+     * 仍然单调，配速不会因为野点漂移而失准。
+     */
+    private fun fillSpurs(n: Int, seed: Int, intensity: Double,
+                          lateral: DoubleArray, forward: DoubleArray) {
+        if (n < 80) return
+        val rnd = Random(seed * 1_000_003 + 77)
+        val used = ArrayList<Int>()
+        fun free(at: Int, gap: Int): Boolean = used.none { abs(it - at) < gap }
+        val lo = maxOf(2, (n * 0.03).toInt())
+        val hi = maxOf(lo + 1, minOf(n - 4, (n * 0.97).toInt()))
+        val scale = n / 660.0
+
+        fun take(count: Double, gap: Int): List<Int> {
+            val want = count * scale
+            val k = want.toInt() + if (rnd.nextDouble() < (want - want.toInt())) 1 else 0
+            val out = ArrayList<Int>()
+            repeat(k) {
+                var tries = 0
+                while (tries++ < 80) {
+                    val at = rnd.nextInt(lo, hi)
+                    if (!free(at, gap)) continue
+                    used.add(at); out.add(at); break
+                }
+            }
+            return out
+        }
+
+        for (at in take(1.6, 14)) {
+            val a = rnd.nextDouble(9.0, 16.0) * intensity * if (rnd.nextBoolean()) 1.0 else -1.0
+            val share = rnd.nextDouble(-0.28, 0.28)
+            lateral[at] = a * abs(share)
+            forward[at] = a * (if (share >= 0) 1.0 else -1.0) * (1.0 - abs(share))
+        }
+        for (at in take(1.0, 12)) {
+            val span = rnd.nextInt(4, 10)
+            if (at + span >= n) continue
+            val a = rnd.nextDouble(5.0, 11.0) * intensity * if (rnd.nextBoolean()) 1.0 else -1.0
+            val share = rnd.nextDouble(-0.25, 0.25)
+            for (k in 0..span) {
+                val s = k.toDouble() / span
+                lateral[at + k] = a * sin(PI * s)
+                forward[at + k] = a * share * sin(2 * PI * s)
+            }
+        }
+        for (at in take(1.6, 8)) {
+            val a = rnd.nextDouble(3.0, 8.0) * intensity
+            val sign = if (rnd.nextBoolean()) 1.0 else -1.0
+            lateral[at] = a * 0.45 * sign
+            forward[at] = a * 0.9 * sign
+            if (rnd.nextDouble() < 0.28 && at + 1 < n) lateral[at + 1] = -a * 0.3 * sign
+        }
+        for (at in take(11.0, 4)) {
+            val a = rnd.nextDouble(0.8, 2.6) * intensity * if (rnd.nextBoolean()) 1.0 else -1.0
+            lateral[at] = a
+            forward[at] = rnd.nextDouble(-0.5, 0.5) * a * 0.4
+        }
+    }
+
+    /** 停顿区间：真实是"一堆 1~2 秒"+ 0~1 次长停顿，密度按场地缩放。 */
+    private fun stallWindows(n: Int, seed: Int, prof: FieldProfile): List<Pair<Int, Int>> {
+        val rnd = Random(seed * 104729 + 31)
+        val out = ArrayList<Pair<Int, Int>>()
+        val lo = maxOf(2, (n * 0.02).toInt())
+        val hi = maxOf(lo + 1, (n * 0.98).toInt())
+        val count = Math.round(n / 60.0 * MICRO_STALL_PER_MIN * prof.microStallScale).toInt()
+        repeat(maxOf(1, count)) {
+            val len = rnd.nextInt(MICRO_STALL_LEN.first, MICRO_STALL_LEN.last + 1)
+            out.add(Pair(rnd.nextInt(lo, maxOf(lo + 1, hi - len)), len))
+        }
+        if (rnd.nextDouble() < LONG_STALL_PROB * prof.longStallScale) {
+            val len = rnd.nextInt(LONG_STALL_LEN.first, LONG_STALL_LEN.last + 1)
+            out.add(Pair(rnd.nextInt(lo, maxOf(lo + 1, hi - len)), len))
+        }
+        out.sortBy { it.first }
+        val merged = ArrayList<Pair<Int, Int>>()
+        for ((at, len) in out) {
+            if (merged.isNotEmpty() && at <= merged.last().first + merged.last().second) {
+                val (a, b) = merged.last()
+                merged[merged.size - 1] = Pair(a, maxOf(b, at + len - a))
+            } else merged.add(Pair(at, len))
+        }
+        return merged
     }
 
     // ------------------------------------------------------------ 光滑模式（v1.10.1 兼容）
@@ -900,7 +820,11 @@ object TrackGen {
         window: ClosedFloatingPointRange<Double>
     ): TrackResult {
         // 采样点数由「配速 × 距离」唯一确定（时长是硬约束）
-        var n = maxOf(2, Math.round(targetM / (1000.0 / paceSecKm)).toInt())
+        // 采样点数 = 「时长 + 1」：逐秒出点，n 个点覆盖 n-1 秒。
+        // 写成 round(targetM / 每步米数) 会丢掉这一秒 —— 2 km @ 330 s/km
+        // 应当是 660 秒，那种写法得到 660 个点 = 659 秒，配速天生少 0.5 秒，
+        // 再叠上距离误差就顶出 1 秒的容差。
+        var n = maxOf(2, Math.round(targetM * paceSecKm / 1000.0).toInt() + 1)
         var adjusted = false
         var pts = emptyList<TrackPoint>()
         var pace = 0.0
@@ -959,14 +883,20 @@ object TrackGen {
      * 只给「轨迹毛刺」开关关闭时用；开关打开走上面的 organic()。
      */
     private fun organicSmooth(raw: List<DoubleArray>, amp: Double, seed: Int): List<DoubleArray> {
-        // 先加密到 ~12m 一个点，点太少磨不动
+        // 加密到 ~4 m 一个点。
+        //
+        // 旧值是 12 m：风华围栏最长边 53 m，12 m 一步只铺 5 个点，
+        // 后续"只磨角"的平滑窗口按点数算（±2 点 = ±24 m），在长边上几乎没有
+        // 作用；而两个正弦的偏移量在这几个点上差异很大，相邻点会被推出
+        // 十几米 —— 实测出现 20~35 m 的一步（图上是一根拉出去又回来的长刺）。
+        // 4 m 一步让偏移场在空间上连续，步长才不会被环线本身放大。
         val dense = ArrayList<DoubleArray>()
         val pts = raw + raw[0]
         for (i in 0 until pts.size - 1) {
             val a = pts[i]
             val b = pts[i + 1]
             val d = Geo.hav(a[0], a[1], b[0], b[1])
-            val k = maxOf(1, Math.ceil(d / 12.0).toInt())
+            val k = maxOf(1, Math.ceil(d / 4.0).toInt())
             for (j in 0 until k) {
                 val t = j.toDouble() / k
                 dense.add(doubleArrayOf(a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t))
@@ -981,6 +911,14 @@ object TrackGen {
         val a1 = amp * rnd.nextDouble(0.5, 1.0)
         val a2 = amp * rnd.nextDouble(0.3, 0.7)
 
+        // 偏移方向：平顺处走局部法向，**折角处走径向**。
+        //
+        // 为什么必须分：折角的前后点几乎反向，法向在那里没有定义，两边各自往外
+        // 一掰，原本 90° 的折角就被掰成一段圆弧 —— 更糟的是偏移量在折点突变，
+        // 相邻两点的间距会从一个步长直接跳到几十米。风华那条 16 顶点的围栏上
+        // 实测会出现 35 m 的一步（图上是一条拉出去又拉回来的长刺）。
+        val cLat = dense.map { it[0] }.average()
+        val cLon = dense.map { it[1] }.average()
         var cur = ArrayList<DoubleArray>(n)
         for (i in 0 until n) {
             val prev = dense[(i - 1 + n) % n]
@@ -988,7 +926,16 @@ object TrackGen {
             val hdg = Geo.bearing(prev[0], prev[1], next[0], next[1])
             val u = i.toDouble() / n * 2 * Math.PI
             val off = a1 * sin(2 * u + p1) + a2 * sin(3 * u + p2)
-            cur.add(Geo.offset(dense[i][0], dense[i][1], off, (hdg + 90.0) % 360.0))
+            val k = 2
+            val a = dense[(i - k + n) % n]
+            val c = dense[(i + k) % n]
+            val turn = abs(Geo.bearing(a[0], a[1], prev[0], prev[1]) -
+                    Geo.bearing(next[0], next[1], c[0], c[1]))
+            var brg = (hdg + 90.0) % 360.0
+            if (min(turn, 360.0 - turn) > 20.0) {
+                brg = Geo.bearing(cLat, cLon, dense[i][0], dense[i][1])
+            }
+            cur.add(Geo.offset(dense[i][0], dense[i][1], off, brg))
         }
 
         repeat(2) {

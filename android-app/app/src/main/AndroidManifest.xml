@@ -76,6 +76,14 @@
             android:label="@string/settings"
             android:parentActivityName=".SettingsActivity" />
 
+        <!-- 全屏轨迹页：一条历史记录的地图 + 导出 GPX -->
+        <activity
+            android:name=".TrackActivity"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:exported="false"
+            android:label="@string/track_title"
+            android:parentActivityName=".SettingsGroupActivity" />
+
         <service
             android:name=".RunService"
             android:exported="false"

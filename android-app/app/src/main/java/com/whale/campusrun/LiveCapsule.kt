@@ -101,12 +101,21 @@ object LiveCapsule {
         // 旧版放的是「1.24 / 2.00 km」，里程在展开的进度条上已经有了，
         // 收起来的时候用户真正想知道的是「还要多久」和「几点结束」。
         val etaClock = if (s.etaSec >= 0) clockAfter(s.etaSec) else "--:--"
-        val chip = if (s.etaSec >= 0) "剩 $eta　·　$etaClock" else s.phase
+        // 暂停时胶囊上要明确写「已暂停」：此时剩余时间和预计完成时刻都是冻结的，
+        // 照常显示会让人以为还在跑（而且 "剩 07:20" 一直不动更像卡死了）。
+        val chip = when {
+            s.paused -> "已暂停"
+            s.etaSec >= 0 -> "剩 $eta　·　$etaClock"
+            else -> s.phase
+        }
 
         val b = NotificationCompat.Builder(ctx, CHANNEL)
             .setSmallIcon(R.drawable.ic_run)
             .setContentTitle(titleOf(s, pct, preview))
-            .setContentText("剩余 $eta　·　预计 $etaClock 完成")
+            .setContentText(
+                if (s.paused) "已暂停　·　已跑 %.2f / %.2f km".format(doneKm, totalKm)
+                else "剩余 $eta　·　预计 $etaClock 完成"
+            )
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setShowWhen(false)
@@ -178,6 +187,7 @@ object LiveCapsule {
         preview -> "校园跑（预览）　$pct%"
         s.failed -> "打卡失败"
         s.finished -> "打卡完成　$pct%"
+        s.paused -> "校园跑　已暂停　$pct%"
         s.metersTotal > 0 -> "校园跑进行中　$pct%"
         else -> "校园跑　${s.phase}"
     }

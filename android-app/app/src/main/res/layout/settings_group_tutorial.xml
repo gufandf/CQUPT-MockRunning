@@ -2,8 +2,13 @@
 <!--
     二级页：使用教程。
 
-  顶部一段正文，下面三行动作（复制 / 分享 / 展开脚本）。正文用卡片内边距块，
+  顶部一段正文，下面两行动作（复制 / 分享）。正文用卡片内边距块，
   不塞进 SettingsRow —— 行是「一项设置」，正文是一段说明。
+
+  为什么去掉了「展开 / 收起脚本」：整段脚本源码摊在页面上既占地方又没人会在这里读，
+  真要脚本时「复制 / 分享」已经够用了。省掉那一行和 220dp 的滚动区，
+  页面只剩「读一遍说明 + 把脚本拿走」两件事。
+  最后一个动作行的分割线要关掉 —— 卡片是 28dp 圆角，底部再多一条线会卡在弧线上。
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
@@ -58,49 +63,10 @@
                     android:id="@+id/rowShareScript"
                     app:rowTitle="@string/b_share_script"
                     app:rowAccent="true"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content" />
-
-                <com.whale.campusrun.SettingsRow
-                    android:id="@+id/rowToggleScript"
-                    app:rowTitle="@string/b_view_script"
-                    app:rowChevron="true"
                     app:rowDivider="false"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content" />
 
-            </LinearLayout>
-
-            <LinearLayout
-                android:id="@+id/scriptPanel"
-                style="@style/SettingsGroup"
-                android:layout_marginTop="12dp"
-                android:padding="@dimen/row_padding_h"
-                android:visibility="gone">
-
-                <ScrollView
-                    android:id="@+id/scriptScroll"
-                    android:layout_width="match_parent"
-                    android:layout_height="220dp"
-                    android:background="@drawable/field"
-                    android:padding="10dp">
-
-                    <TextView
-                        android:id="@+id/tvScript"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:fontFamily="monospace"
-                        android:textColor="@color/log"
-                        android:textSize="11sp" />
-                </ScrollView>
-
-                <TextView
-                    android:id="@+id/tvScriptPath"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:textColor="@color/fg_dim"
-                    android:textSize="11sp" />
             </LinearLayout>
         </LinearLayout>
     </ScrollView>

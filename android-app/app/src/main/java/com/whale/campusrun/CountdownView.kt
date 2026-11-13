@@ -97,7 +97,16 @@ class CountdownView @JvmOverloads constructor(
     private val pop = LiquidSpring(response = 0.28f, bounce = 0.35f, minVisibleChange = 1e-3f)
 
     /** 整层的淡入淡出 0..1。 */
-    private var fade = 0f
+    /**
+     * 倒计时的**状态机**（纯 JVM，见 `CountdownClock`）。
+     *
+     * 视觉部分只负责画，什么时候结束、什么时候回调全部交给它 ——
+     * 上一版把这段逻辑写在这个 View 的 ticker 里，`fadeTarget` 被提前置 0，
+     * 于是 `onFinished` 永远不触发：数字淡出、遮罩消失，但跑步没开始。
+     */
+    private val clock = CountdownClock(SECONDS.toFloat())
+
+    private val fade: Float get() = clock.fade
     private var fadeTarget = 0f
 
     /** 上一次画出来的整数秒，用来判定「该弹一下了」。 */
@@ -110,7 +119,7 @@ class CountdownView @JvmOverloads constructor(
     var onFinished: (() -> Unit)? = null
 
     /** 是否正在倒计时（入场动画之后到结束之前都算）。 */
-    val isRunning: Boolean get() = fadeTarget > 0f
+    val isRunning: Boolean get() = clock.visible
 
     init {
         // 它是纯装饰层，不参与点击 —— 点地图/点开始按钮都要照常落到下层
@@ -122,6 +131,7 @@ class CountdownView @JvmOverloads constructor(
 
     /** 开始（或重新开始）一轮倒计时。 */
     fun start() {
+        clock.start()
         remaining = SECONDS.toFloat()
         lastShownSecond = -1
         lastFrame = 0L
@@ -134,6 +144,7 @@ class CountdownView @JvmOverloads constructor(
 
     /** 取消：立刻淡出，不触发 [onFinished]。 */
     fun cancel() {
+        clock.cancel()
         fadeTarget = 0f
         postOnAnimation(ticker)
     }
@@ -146,30 +157,23 @@ class CountdownView @JvmOverloads constructor(
             val dt = ((now - lastFrame) / 1000f).coerceIn(0.001f, 0.032f)
             lastFrame = now
 
-            // 淡入淡出：线性跟上目标，180ms 走完
-            val fadeStep = dt / 0.18f
-            fade = if (fadeTarget > fade) min(fadeTarget, fade + fadeStep)
-            else (fadeTarget.coerceAtLeast(fade - fadeStep)).coerceAtLeast(0f)
-
+            // 状态推进全交给 clock（纯函数，有单测钉住"一定会回调"这件事）
+            val done = clock.step(dt)
+            remaining = clock.remaining
             var moving = pop.step(1f, dt)
 
-            // 只有"在场"的时候才推进秒数：淡出期间数字停住，免得取消后还在跳
-            if (fadeTarget > 0f) {
-                remaining = (remaining - dt).coerceAtLeast(0f)
-                if (remaining <= 0f) {
-                    fadeTarget = 0f
-                    // 先让淡出跑一帧再回调，避免"数字消失的同时按钮已经变成结束打卡"
-                    if (fade <= 0.001f) {
-                        visibility = GONE
-                        onFinished?.invoke()
-                        onFinished = null
-                        return
-                    }
-                }
+            if (done) {
+                // 淡出结束、这一层收掉，同时发出开跑信号
+                visibility = GONE
+                lastFrame = 0L
+                invalidate()
+                onFinished?.invoke()
+                onFinished = null
+                return
             }
 
             invalidate()
-            if (moving || fade != fadeTarget || fadeTarget > 0f) {
+            if (moving || clock.visible) {
                 postOnAnimation(this)
             } else {
                 visibility = GONE

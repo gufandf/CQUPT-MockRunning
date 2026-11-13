@@ -96,7 +96,7 @@ object RunController {
         noise: Double,
         seed: Int,
         paceToleranceSec: Double = TrackGen.DEFAULT_PACE_TOLERANCE_SEC,
-        burrs: Boolean = false
+        burrs: Boolean = true
     ) {
         if (running) return
         running = true
@@ -107,15 +107,16 @@ object RunController {
         state = RunState(phase = "准备中", paceSecKm = paceSecKm, metersTotal = targetM)
         emitState()
 
-        val engine = RunEngine(Api(), callback)
-        this.engine = engine
+        // 局部变量不能叫 engine：它会遮蔽字段，finally 里就没法把字段置空了
+        val eng = RunEngine(Api(), callback)
+        engine = eng
 
         // 先挂前台服务保命，再开工 —— 手机揣兜里 11 分钟，进程不能被杀
         appCtx?.let { RunService.start(it) }
 
         thread = Thread({
             try {
-                engine.runAll(
+                eng.runAll(
                     openid = openid,
                     area = area,
                     paceSecKm = paceSecKm,
@@ -135,6 +136,11 @@ object RunController {
                 running = false
                 cancelling = false
                 thread = null
+                // 引擎可能停在「已暂停」上（比如暂停中直接结束打卡）：
+                // 结束时不清掉，界面会拿着 paused=true 去画「继续」按钮，
+                // 而这一轮其实已经收了。engine 置空，paused 自然回到 false。
+                engine = null
+                if (state.paused) state = state.copy(paused = false)
                 // 关键：停下来的状态要再广播一次，
                 // 否则界面最后一次收到的是 running 还是 true 的那一帧，
                 // 按钮就永远停在"结束打卡"上变不回去了。
@@ -158,6 +164,30 @@ object RunController {
         engine?.cancel()
         log("正在停止…（当前批次传完就停）")
     }
+
+    /** 暂停（停表）。不上传点、本地时钟冻结，恢复后暂停时长不计入配速。 */
+    fun pause() {
+        if (!running) return
+        val e = engine ?: return
+        if (e.isPaused()) return
+        e.pause()
+        state = state.copy(phase = "已暂停", paused = true)
+        emitState()
+    }
+
+    /** 继续。 */
+    fun resume() {
+        if (!running) return
+        val e = engine ?: return
+        if (!e.isPaused()) return
+        e.resume()
+        state = state.copy(phase = "上传中", paused = false)
+        emitState()
+    }
+
+    /** 当前是否处于暂停（界面据此切按钮文案）。 */
+    val paused: Boolean
+        get() = engine?.isPaused() == true
 
     // ---------------------------------------------------------------- 内部回调
 

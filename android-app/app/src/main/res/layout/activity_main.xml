@@ -183,6 +183,53 @@
              默认按高度 17.5%（92dp → 16dp）会再削掉一圈；这里显式收到 10dp。
              room 上下左右都算，所以高度同步从 92dp 收到 84dp ——
              胶囊本体仍是 64dp 左右，看起来是「同高、更宽」，而不是整颗被放大。 -->
+        <!-- 跑步中才出现的一行：左边【暂停 / 继续】，右边主按钮变成【结束打卡】。
+             为什么不用「长按暂停」或者把暂停塞进主按钮的弹出菜单：
+               跑的过程中只有两个动作（停一下 / 结束），都做成一眼可见的按钮最省事；
+               藏进菜单就变成"想暂停还得先点一下再选一下"，而暂停是临时起意的动作。
+             不在跑步中时这一行整个 GONE，主按钮仍然独占整行、与卡片同宽。 -->
+        <LinearLayout
+            android:id="@+id/rowRunActions"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:visibility="gone">
+
+            <com.whale.campusrun.LiquidButton
+                app:liquidTone="ghost"
+                app:liquidRoom="9dp"
+                android:id="@+id/btnPause"
+                android:layout_width="0dp"
+                android:layout_height="84dp"
+                android:layout_marginEnd="10dp"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:text="@string/b_pause"
+                android:textColor="@color/fg"
+                android:textSize="17sp"
+                android:textStyle="bold" />
+
+            <com.whale.campusrun.LiquidButton
+                app:liquidTone="danger"
+                app:liquidRoom="9dp"
+                android:id="@+id/btnStop"
+                android:layout_width="0dp"
+                android:layout_height="84dp"
+                android:layout_weight="1.6"
+                android:gravity="center"
+                android:text="@string/b_stop"
+                android:textColor="@color/danger"
+                android:textSize="17sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <!-- 空闲时的主按钮：整行独占，与上面的进度卡左右对齐。
+             以前这里还加了 16dp 的 marginStart/End，加上父容器的 20dp，
+             按钮左右各缩进 36dp，看上去比卡片窄一圈、像飘在中间。
+             liquidRoom 是画布留给形变/发光的余量（胶囊本体 = 尺寸 − 2×余量），
+             默认按高度 17.5%（92dp → 16dp）会再削掉一圈；这里显式收到 10dp。
+             room 上下左右都算，所以高度同步从 92dp 收到 84dp ——
+             胶囊本体仍是 64dp 左右，看起来是「同高、更宽」，而不是整颗被放大。 -->
         <com.whale.campusrun.LiquidButton
             app:liquidTone="accent"
             app:liquidRoom="10dp"

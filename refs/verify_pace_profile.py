@@ -285,7 +285,16 @@ def point_at(dense, cum, dist):
 
 # ---------------------------------------------------------------- 配速形态（对应 TrackGen）
 
+FATIGUE_MIN, FATIGUE_MAX = 1.20, 1.60
+WALK_SLOWNESS_MIN, WALK_SLOWNESS_SPAN = 2.7, 0.5
+STOP_SLOWNESS = 15.0
+
+
 def slowness_profile(n, seed):
+    """速度形态，对着一次真实跑步校准（见 REAL-RUN-CALIBRATION.md）。
+
+    四层：配速段 / 疲劳曲线（t^1.5）/ 走段 / 真停。
+    """
     out = [1.0] * n
     rnd = random.Random(seed * 7919 + 13)
 
@@ -298,22 +307,30 @@ def slowness_profile(n, seed):
             out[k] = f
         i = end
 
+    fatigue = FATIGUE_MIN + rnd.random() * (FATIGUE_MAX - FATIGUE_MIN)
     for k in range(n):
+        t = k / n
         if k < 25:
-            out[k] *= 1.08
-        if k >= n - 25:
-            out[k] *= 0.94
-        out[k] *= 1.0 + 0.10 * k / n
+            out[k] *= 1.10
+        out[k] *= 1.0 + fatigue * t * t * math.sqrt(t)
+        if t > 0.96:
+            out[k] *= 0.86
 
-    # 停顿：约 7% 的时间点落在里面，2 公里大概是 2~3 次
-    pauses = int(n * 0.07 / 6.0)
-    pauses = max(1, min(5, pauses))
-    for _ in range(pauses):
-        ln = 4 + rnd.randint(0, 5)
+    # 走段：2~3 段，每段 10~20 秒，集中在后半程
+    for _ in range(2 + rnd.randint(0, 1)):
+        ln = 10 + rnd.randint(0, 10)
         span = max(1, n - ln - 1)
-        at = int(span * (0.12 + rnd.random() * 0.76))
+        at = int(span * (0.30 + rnd.random() * 0.62))
+        walk = WALK_SLOWNESS_MIN + rnd.random() * WALK_SLOWNESS_SPAN
         for k in range(at, min(n, at + ln)):
-            out[k] = 22.0
+            out[k] = max(out[k], walk)
+
+    # 真停：1 次、1~3 秒
+    ln = 1 + rnd.randint(0, 2)
+    span = max(1, n - ln - 1)
+    at = int(span * (0.20 + rnd.random() * 0.60))
+    for k in range(at, min(n, at + ln)):
+        out[k] = STOP_SLOWNESS
     return out
 
 

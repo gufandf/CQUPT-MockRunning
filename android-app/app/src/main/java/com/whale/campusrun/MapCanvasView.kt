@@ -82,6 +82,16 @@ class MapCanvasView @JvmOverloads constructor(
      */
     private var hintVisible = true
 
+    /**
+     * 占位提示的两行字。
+     *
+     * 默认是主页那两句（「设置场地后显示边界 / 开始打卡后显示轨迹」），
+     * 但历史轨迹页在「服务端没存轨迹」时也要一块空白区域 —— 那时说「开始打卡后显示轨迹」
+     * 就是错的，所以允许调用方换文案。
+     */
+    private var hintLine1: String = "设置场地后显示边界"
+    private var hintLine2: String = "开始打卡后显示轨迹"
+
     private val pad = 48f
 
     /** 地图卡片的圆角半径，跟 @drawable/box 的 radius_card（24dp）对齐。 */
@@ -101,6 +111,15 @@ class MapCanvasView @JvmOverloads constructor(
     fun setTrack(points: List<DoubleArray>) {
         track = points
         invalidate()
+    }
+
+    /** 换占位提示的文案（第二行传空串就只画一行）。 */
+    fun setHintText(line1: String, line2: String) {
+        if (hintLine1 != line1 || hintLine2 != line2) {
+            hintLine1 = line1
+            hintLine2 = line2
+            invalidate()
+        }
     }
 
     /** 倒计时期间把占位提示收起来，免得跟秒数叠字。 */
@@ -147,8 +166,12 @@ class MapCanvasView @JvmOverloads constructor(
 
         if (all.isEmpty()) {
             if (hintVisible) {
-                canvas.drawText("设置场地后显示边界", width / 2f, height / 2f - 10f, hintPaint)
-                canvas.drawText("开始打卡后显示轨迹", width / 2f, height / 2f + 30f, hintPaint)
+                if (hintLine2.isEmpty()) {
+                    canvas.drawText(hintLine1, width / 2f, height / 2f + 10f, hintPaint)
+                } else {
+                    canvas.drawText(hintLine1, width / 2f, height / 2f - 10f, hintPaint)
+                    canvas.drawText(hintLine2, width / 2f, height / 2f + 30f, hintPaint)
+                }
             }
             return
         }

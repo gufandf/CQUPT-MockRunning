@@ -114,7 +114,14 @@ class Api {
     fun getSportsResult() = get("/sportsResult/list")
 
     fun getAreaModelList(x: Int = 0) = get("/areaModel/listAll/$x")
-    fun getPointsByNo(placeCode: String) = get("/sportPoint/listAll/$placeCode")
+    /**
+     * 历史轨迹点。
+     *
+     * 参数是**记录号**（`<unifyId>_<placeCode>_<yyyyMMddHHmmss>`），不是 placeCode ——
+     * 路径里那个 `{v}` 长得像 placeCode，实测传 placeCode 只会拿到 `[]`
+     * （见 refs/FINDINGS.md §4.4）。参数名以前叫 placeCode，是个会误导人的错名。
+     */
+    fun getPointsByNo(recordNo: String) = get("/sportPoint/listAll/$recordNo")
     fun getRecordInfo(no: String) = get("/sportRecord/info/$no")
     fun getRecordPage(page: Int = 1, size: Int = 8) = get("/sportRecord/mobile/list/$page/$size")
 

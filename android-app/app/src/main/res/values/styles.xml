@@ -35,20 +35,9 @@
         <item name="android:elevation">2dp</item>
     </style>
 
-    <!-- 输入框：内嵌 18dp 圆角的小玻璃块 -->
-    <style name="InputField">
-        <item name="android:layout_width">match_parent</item>
-        <item name="android:layout_height">wrap_content</item>
-        <item name="android:background">@drawable/field</item>
-        <item name="android:maxLines">1</item>
-        <item name="android:paddingStart">16dp</item>
-        <item name="android:paddingTop">14dp</item>
-        <item name="android:paddingEnd">16dp</item>
-        <item name="android:paddingBottom">14dp</item>
-        <item name="android:textColor">@color/fg</item>
-        <item name="android:textColorHint">@color/fg_dim</item>
-        <item name="android:textSize">16sp</item>
-    </style>
+    <!-- 输入框样式 InputField 已删：它是 @drawable/field 的唯一引用方，
+         而 field 本身在教程页取消只读脚本框之后就没任何布局用了。
+         留着这个 style 只会让「@drawable/field 找不到」变成编译错误 -->
 
     <!-- 分组卡片：一整组设置项共用一张 28dp 圆角实心面，行与行之间靠行内分割线 -->
     <style name="SettingsGroup">

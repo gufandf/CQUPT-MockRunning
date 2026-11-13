@@ -19,6 +19,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.view.View
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
@@ -36,6 +37,12 @@ class MainActivity : AppCompatActivity(), RunListener {
     private lateinit var tvPace: TextView
     private lateinit var tvPhase: TextView
     private lateinit var countdown: CountdownView
+    /** 上一次因为换 openid 而清掉成绩缓存的那个 openid（用于让新账号立刻重新预取）。 */
+    private var removedStatsFor: String = ""
+
+    private lateinit var rowRunActions: View
+    private lateinit var btnPause: LiquidButton
+    private lateinit var btnStop: LiquidButton
 
     private val api = Api()
     private lateinit var engine: RunEngine
@@ -66,6 +73,9 @@ class MainActivity : AppCompatActivity(), RunListener {
         tvPace = findViewById(R.id.tvPace)
         tvPhase = findViewById(R.id.tvPhase)
         countdown = findViewById(R.id.countdown)
+        rowRunActions = findViewById(R.id.rowRunActions)
+        btnPause = findViewById(R.id.btnPause)
+        btnStop = findViewById(R.id.btnStop)
 
         findViewById<LiquidButton>(R.id.btnSettings).setOnClickListener {
             startActivity(Intent(this, SettingsActivity::class.java))
@@ -75,9 +85,30 @@ class MainActivity : AppCompatActivity(), RunListener {
         }
 
         btnRun.setOnClickListener { onRunButtonClicked() }
+        btnPause.setOnClickListener {
+            if (RunController.paused) RunController.resume() else RunController.pause()
+            refreshRunButton()
+        }
+        btnStop.setOnClickListener { doStop() }
 
         askNotificationPermission()
         restoreOrInit()
+        warmUpStats()
+    }
+
+    /**
+     * 启动就把成绩拉一次（不阻塞界面）。
+     *
+     * 以前成绩只在打开成绩页那一刻拉，进页面先渲染「加载中」再跳数字；
+     * 现在冷启动就静默拉一遍并落盘，打开成绩页直接读快照，页面一次成型。
+     * 失败不弹窗 —— 启动阶段的网络失败不该让人以为 App 坏了，
+     * 原因记进快照，成绩页顶部用一行小字说明。
+     */
+    private fun warmUpStats() {
+        val oid = openid()
+        if (oid.isEmpty()) return
+        // 刚在设置页换过账号：这里再拉一次，别让「本次启动已拉过」把新账号挡掉
+        if (removedStatsFor == oid) StatsLoader.refresh(this, oid) else StatsLoader.warmUp(this, oid)
     }
 
     override fun onStart() {
@@ -107,6 +138,8 @@ class MainActivity : AppCompatActivity(), RunListener {
             dropIfOpenidChanged()
             showArea()
             autoFetchIfNeeded()
+            // 从设置页换了 openid 回来：新账号的成绩也得预取一遍
+            warmUpStats()
         }
     }
 
@@ -130,6 +163,10 @@ class MainActivity : AppCompatActivity(), RunListener {
         if (AreaStore.publishedOpenid.isNotEmpty() && AreaStore.publishedOpenid != oid) {
             AreaStore.invalidate()
             AreaCache.clear(this)
+            // 成绩缓存同样属于上一个账号：不清的话，换号后成绩页会先显示别人的记录，
+            // 直到预取回来才被替换掉（那一瞬间是泄露，不是"旧数据"）。
+            StatsStore.clear(this)
+            removedStatsFor = oid
         }
     }
 
@@ -270,7 +307,7 @@ class MainActivity : AppCompatActivity(), RunListener {
             return
         }
         // 轨迹毛刺开关（设置 → 跑步参数）。开跑之前读一次，跑的过程中不再变。
-        val burrs = prefs.getBoolean("burrs", false)
+        val burrs = prefs.getBoolean("burrs", true)
 
         val seq = ++runSeq
         countingDown = true
@@ -343,7 +380,8 @@ class MainActivity : AppCompatActivity(), RunListener {
                             noise = 0.6,
                             seed = (System.currentTimeMillis() % 100000).toInt(),
                             paceToleranceSec = tol,
-                            burrs = burrs
+                            burrs = burrs,
+                            placeCode = a.placeCode
                         )
                         traj = res.points.map { doubleArrayOf(it.lat, it.lon) }
                     } catch (t: Throwable) {
@@ -474,18 +512,51 @@ class MainActivity : AppCompatActivity(), RunListener {
         }
     }
 
+    /**
+     * 底部按钮的三种形态：
+     *
+     *   空闲      → 一颗整宽【开始打卡】
+     *   倒计时中  → 一颗整宽【取消】（暂时地取消这次倒计时）
+     *   跑步中    → 左侧【暂停 / 继续】+ 右侧【结束打卡】两半
+     *
+     * 为什么跑步中要拆成两颗：暂停是临时起意的动作，藏进长按或弹出菜单就变成
+     * 「想停一下得点两下」，而结束是破坏性操作 —— 分开摆，误触的概率最低。
+     */
     private fun refreshRunButton() {
         // 倒计时中按钮固定是【取消】：这段时间里 running 还是 false，
         // 走下面的分支会被状态广播反复改回【开始打卡】，看着像没点上。
-        if (countingDown) return
+        if (countingDown) {
+            rowRunActions.visibility = View.GONE
+            btnRun.visibility = View.VISIBLE
+            return
+        }
 
         val running = RunController.running
-        btnRun.setText(if (running) R.string.b_stop else R.string.b_run)
+        if (running) {
+            // 跑步中：主按钮让位给「暂停 + 结束」两半
+            btnRun.visibility = View.GONE
+            rowRunActions.visibility = View.VISIBLE
+
+            val paused = RunController.paused
+            btnPause.setText(if (paused) R.string.b_resume else R.string.b_pause)
+            // 暂停中把「继续」做成主色 —— 它才是此刻该点的那颗
+            btnPause.tone =
+                if (paused) LiquidButton.Tone.ACCENT else LiquidButton.Tone.GHOST
+            btnPause.setTextColor(
+                ContextCompat.getColor(
+                    this,
+                    if (paused) R.color.on_accent else R.color.fg
+                )
+            )
+            return
+        }
+
+        rowRunActions.visibility = View.GONE
+        btnRun.visibility = View.VISIBLE
+        btnRun.setText(R.string.b_run)
         // 液体按钮自己画背景，切态只改 tone —— 不再 setBackgroundResource
-        btnRun.tone = if (running) LiquidButton.Tone.DANGER else LiquidButton.Tone.ACCENT
-        btnRun.setTextColor(
-            ContextCompat.getColor(this, if (running) R.color.danger else R.color.on_accent)
-        )
+        btnRun.tone = LiquidButton.Tone.ACCENT
+        btnRun.setTextColor(ContextCompat.getColor(this, R.color.on_accent))
     }
 
     // ---------------------------------------------------------------- 状态
@@ -518,6 +589,8 @@ class MainActivity : AppCompatActivity(), RunListener {
             val idle = s.etaSec < 0 && !s.finished && !s.failed
             tvRemainLabel.text = if (idle) "状态" else getString(R.string.dash_remain_label)
             tvRemain.text = when {
+                // 暂停时「剩余」是被冻住的那个数，直接写「已暂停」比让它停着不动更清楚
+                s.paused -> "已暂停"
                 s.finished -> "已跑完"
                 s.failed -> "已中断"
                 s.etaSec >= 0 -> eta
